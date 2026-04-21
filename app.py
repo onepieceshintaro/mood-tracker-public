@@ -24,6 +24,131 @@ from _user import render_account_sidebar, get_or_create_user_id
 from db import get_engine, init_db
 
 
+# -------------- タグ定義 --------------
+TAG_OPTIONS = ["仕事", "人間関係", "家族", "通院・治療", "休息", "外出", "運動"]
+TAG_EMOJI = {
+    "仕事": "🏢",
+    "人間関係": "👥",
+    "家族": "👨‍👩‍👧",
+    "通院・治療": "🏥",
+    "休息": "🛋",
+    "外出": "🚶",
+    "運動": "🏃",
+}
+
+
+def _format_tag(t: str) -> str:
+    return f"{TAG_EMOJI.get(t, '')} {t}".strip()
+
+
+def _parse_tag_string(raw: str) -> list[str]:
+    """保存された tags 文字列をリストに戻す（全角読点・カンマ両対応）。"""
+    if not raw:
+        return []
+    normalized = raw.replace("、", ",")
+    return [t.strip() for t in normalized.split(",") if t.strip()]
+
+
+# -------------- 傾向サマリ（本人データからの事実のみ） --------------
+def build_insights(df: pd.DataFrame) -> list[str]:
+    """本人の記録から事実ベースの短文を返す。
+
+    原則：
+      - 一般論は返さない（「睡眠は大事」的な言い回しNG）
+      - 全て本人データから計算した数値のみ
+      - サンプル数が少ないものは除外（最低 n=3）
+      - 全体平均との差が小さいものは除外（|diff| < 0.5）
+    """
+    out: list[str] = []
+    if df is None or len(df) < 14:
+        return out
+
+    overall = df["mood"].mean()
+
+    # 1. 睡眠6h未満の翌日
+    if "sleep_hours" in df.columns:
+        d = df.sort_values("log_date").reset_index(drop=True).copy()
+        d["next_mood"] = d["mood"].shift(-1)
+        nxt = d[d["sleep_hours"] < 6]["next_mood"].dropna()
+        if len(nxt) >= 3:
+            diff = nxt.mean() - overall
+            if abs(diff) >= 0.5:
+                direction = "低い" if diff < 0 else "高い"
+                out.append(
+                    f"💤 **睡眠6h未満**の翌日、気分平均は **{nxt.mean():.1f}** "
+                    f"（全体平均より {abs(diff):.1f} {direction}・n={len(nxt)}）"
+                )
+
+    # 2. 曜日（最も低い曜日・最も高い曜日）
+    d_dow = df.copy()
+    d_dow["dow"] = d_dow["log_date"].dt.dayofweek
+    dow_names = ["月", "火", "水", "木", "金", "土", "日"]
+    stats = d_dow.groupby("dow")["mood"].agg(["mean", "count"])
+    stats = stats[stats["count"] >= 3]
+    if not stats.empty:
+        worst_dow = stats["mean"].idxmin()
+        worst_diff = stats.loc[worst_dow, "mean"] - overall
+        if worst_diff <= -0.5:
+            out.append(
+                f"📅 **{dow_names[worst_dow]}曜日**の気分は全体平均より "
+                f"**{abs(worst_diff):.1f}** 低い傾向 "
+                f"（平均 {stats.loc[worst_dow, 'mean']:.1f}・"
+                f"n={int(stats.loc[worst_dow, 'count'])}）"
+            )
+        best_dow = stats["mean"].idxmax()
+        best_diff = stats.loc[best_dow, "mean"] - overall
+        if best_diff >= 0.5 and best_dow != worst_dow:
+            out.append(
+                f"📅 **{dow_names[best_dow]}曜日**の気分は全体平均より "
+                f"**{best_diff:.1f}** 高い傾向 "
+                f"（平均 {stats.loc[best_dow, 'mean']:.1f}・"
+                f"n={int(stats.loc[best_dow, 'count'])}）"
+            )
+
+    # 3. 低気圧の日
+    if "pressure" in df.columns:
+        dp = df[df["pressure"].notna()]
+        if len(dp) >= 10:
+            threshold = 1005
+            low = dp[dp["pressure"] <= threshold]["mood"]
+            if len(low) >= 3:
+                diff = low.mean() - overall
+                if abs(diff) >= 0.5:
+                    direction = "低い" if diff < 0 else "高い"
+                    out.append(
+                        f"🌡 気圧 **{threshold}hPa以下**の日、気分平均 **{low.mean():.1f}** "
+                        f"（全体平均より {abs(diff):.1f} {direction}・n={len(low)}）"
+                    )
+
+    # 4. タグ別（最も高い / 最も低い）
+    if "tags" in df.columns:
+        td = df[["mood", "tags"]].copy()
+        td["tag_list"] = td["tags"].fillna("").apply(_parse_tag_string)
+        records = []
+        for t in TAG_OPTIONS:
+            sub = td[td["tag_list"].apply(lambda lst: t in lst)]
+            if len(sub) >= 3:
+                records.append((t, sub["mood"].mean(), len(sub)))
+        if records:
+            records.sort(key=lambda x: x[1])
+            worst_t, worst_m, worst_n = records[0]
+            worst_diff = worst_m - overall
+            if worst_diff <= -0.5:
+                out.append(
+                    f"{TAG_EMOJI.get(worst_t, '')} **「{worst_t}」**と書いた日の気分平均 "
+                    f"**{worst_m:.1f}**（全体平均より {worst_diff:.1f}・n={worst_n}）"
+                )
+            best_t, best_m, best_n = records[-1]
+            best_diff = best_m - overall
+            if best_diff >= 0.5 and best_t != worst_t:
+                out.append(
+                    f"{TAG_EMOJI.get(best_t, '')} **「{best_t}」**と書いた日の気分平均 "
+                    f"**{best_m:.1f}**（全体平均より +{best_diff:.1f}・n={best_n}）"
+                )
+
+    return out
+
+
 # -------------- DB 操作 --------------
 def upsert(log_date, mood, sleep_hours, energy, note, tags, weather, wake_time,
            recovery="", user_id=None):
@@ -259,11 +384,14 @@ with st.form("mood_form"):
         )
 
     # --- 任意（折りたたみ・書きたい日だけ） ---
-    _has_optional = bool(init_tags or init_recovery or init_note)
+    _init_tag_list = [t for t in _parse_tag_string(init_tags or "") if t in TAG_OPTIONS]
+    _has_optional = bool(_init_tag_list or init_recovery or init_note)
     with st.expander("もう少し書く（任意）", expanded=_has_optional):
-        tags = st.text_input(
-            "出来事（カンマ区切り）", value=init_tags or "",
-            placeholder="例: 仕事, 通院, 子育て",
+        tags_selected = st.multiselect(
+            "出来事（複数選択可）",
+            TAG_OPTIONS,
+            default=_init_tag_list,
+            format_func=_format_tag,
         )
         recovery = st.text_input(
             "今日ちょっと良かったこと", value=init_recovery or "",
@@ -278,7 +406,8 @@ with st.form("mood_form"):
 
     submitted = st.form_submit_button("記録する", use_container_width=True)
     if submitted:
-        upsert(log_date, mood, sleep_hours, energy, note, tags,
+        tags_to_save = ",".join(tags_selected)
+        upsert(log_date, mood, sleep_hours, energy, note, tags_to_save,
                weather, wake_time, recovery=recovery)
         st.success(f"{log_date} の記録を保存しました")
 
@@ -294,6 +423,35 @@ if df.empty:
 
 df["log_date"] = pd.to_datetime(df["log_date"])
 df = df.sort_values("log_date").reset_index(drop=True)
+
+# --- あなたの傾向（本人データからの事実） ---
+_insights = build_insights(df)
+if _insights:
+    st.subheader("📊 あなたの傾向")
+    st.caption("あなた自身の記録から出た事実です（一般論ではなく）")
+    for s in _insights:
+        st.markdown(f"- {s}")
+    st.divider()
+elif len(df) < 14:
+    st.caption(
+        f"📊 「あなたの傾向」は記録が14日分以上溜まると表示されます "
+        f"（現在 {len(df)} 日）"
+    )
+
+# --- 最近の「良かったこと」ハイライト ---
+if "recovery" in df.columns:
+    _cutoff_rec = pd.Timestamp.now().normalize() - pd.Timedelta(days=30)
+    _rec_df = df[
+        (df["log_date"] >= _cutoff_rec)
+        & (df["recovery"].fillna("").astype(str).str.len() > 0)
+    ][["log_date", "recovery"]]
+    if not _rec_df.empty:
+        st.subheader("✨ 最近の「良かったこと」")
+        st.caption("自分が書いた、自分に効いたこと。忘れた頃に読み返して。")
+        for _, row in _rec_df.sort_values("log_date", ascending=False).head(10).iterrows():
+            dt = row["log_date"].strftime("%m-%d")
+            st.markdown(f"- **{dt}** — {row['recovery']}")
+        st.divider()
 
 period = st.radio(
     "表示期間",
@@ -386,7 +544,10 @@ if not anom.empty:
                 f"｜ {w_emoji}{w_label} {extras_str}"
             )
             if row["tags"]:
-                st.caption(f"出来事: {row['tags']}")
+                _formatted_tags = " / ".join(
+                    _format_tag(t) for t in _parse_tag_string(row["tags"])
+                ) or row["tags"]
+                st.caption(f"出来事: {_formatted_tags}")
             if row["note"]:
                 st.write(row["note"])
             st.divider()
