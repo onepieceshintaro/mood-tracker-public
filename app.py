@@ -125,6 +125,12 @@ if "location" not in st.session_state:
     }
 
 with st.sidebar:
+    st.link_button(
+        "🏠 Hub に戻る",
+        "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/",
+        use_container_width=True,
+    )
+    st.divider()
     st.header("位置設定")
     st.caption("天気データの取得に使います")
 
