@@ -173,7 +173,7 @@ with st.sidebar:
 lat = st.session_state["location"]["lat"]
 lon = st.session_state["location"]["lon"]
 
-st.title("📝 今日の気分")
+st.markdown("### 📝 今日の気分")
 st.caption("30秒で書ける、浅くて続けられる記録。")
 
 # --- 日付と天気（フォームの外で、変更即時反映） ---
