@@ -67,6 +67,7 @@ def init_db() -> None:
                 energy INTEGER,
                 note TEXT,
                 tags TEXT,
+                recovery TEXT,
                 temperature {"DOUBLE PRECISION" if pg else "REAL"},
                 weather_code INTEGER,
                 precipitation {"DOUBLE PRECISION" if pg else "REAL"},
@@ -75,6 +76,13 @@ def init_db() -> None:
                 PRIMARY KEY (user_id, log_date)
             )
         """))
+        # 既存テーブルに recovery が無い場合に後付けで追加（冪等）
+        try:
+            conn.execute(text(
+                "ALTER TABLE mood_logs ADD COLUMN IF NOT EXISTS recovery TEXT"
+            ))
+        except Exception:
+            pass
 
         # user_nicknames（3アプリ共通・プレフィックス無し）
         conn.execute(text("""

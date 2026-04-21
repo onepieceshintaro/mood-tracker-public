@@ -26,17 +26,17 @@ from db import get_engine, init_db
 
 # -------------- DB 操作 --------------
 def upsert(log_date, mood, sleep_hours, energy, note, tags, weather, wake_time,
-           user_id=None):
+           recovery="", user_id=None):
     if user_id is None:
         user_id = get_or_create_user_id()
     w = weather or {}
     wake_str = wake_time.strftime("%H:%M") if wake_time else None
     sql = text("""
         INSERT INTO mood_logs
-        (user_id, log_date, mood, sleep_hours, energy, note, tags,
+        (user_id, log_date, mood, sleep_hours, energy, note, tags, recovery,
          temperature, weather_code, precipitation, pressure, wake_time)
         VALUES
-        (:user_id, :log_date, :mood, :sleep_hours, :energy, :note, :tags,
+        (:user_id, :log_date, :mood, :sleep_hours, :energy, :note, :tags, :recovery,
          :temperature, :weather_code, :precipitation, :pressure, :wake_time)
         ON CONFLICT (user_id, log_date) DO UPDATE SET
             mood = EXCLUDED.mood,
@@ -44,6 +44,7 @@ def upsert(log_date, mood, sleep_hours, energy, note, tags, weather, wake_time,
             energy = EXCLUDED.energy,
             note = EXCLUDED.note,
             tags = EXCLUDED.tags,
+            recovery = EXCLUDED.recovery,
             temperature = EXCLUDED.temperature,
             weather_code = EXCLUDED.weather_code,
             precipitation = EXCLUDED.precipitation,
@@ -59,6 +60,7 @@ def upsert(log_date, mood, sleep_hours, energy, note, tags, weather, wake_time,
             "energy": energy,
             "note": note,
             "tags": tags,
+            "recovery": recovery,
             "temperature": w.get("temperature"),
             "weather_code": w.get("weather_code"),
             "precipitation": w.get("precipitation"),
@@ -71,7 +73,7 @@ def load_existing(log_date, user_id=None):
     if user_id is None:
         user_id = get_or_create_user_id()
     sql = text("""
-        SELECT mood, sleep_hours, energy, note, tags,
+        SELECT mood, sleep_hours, energy, note, tags, recovery,
                temperature, weather_code, precipitation, pressure, wake_time
         FROM mood_logs WHERE user_id = :user_id AND log_date = :log_date
     """)
@@ -216,10 +218,12 @@ with col_w2:
 existing = load_existing(log_date)
 if existing:
     st.caption(f"📌 {log_date} は既に記録があります。上書きもできます。")
-    (init_mood, init_sleep, init_energy, init_note, init_tags,
+    (init_mood, init_sleep, init_energy, init_note, init_tags, init_recovery,
      _t, _wc, _p, _pr, init_wake_str) = existing
 else:
-    init_mood, init_sleep, init_energy, init_note, init_tags = 5, 7.0, 5, "", ""
+    init_mood, init_sleep, init_energy, init_note, init_tags, init_recovery = (
+        5, 7.0, 5, "", "", ""
+    )
     init_wake_str = None
 
 if init_wake_str:
@@ -232,6 +236,7 @@ else:
     init_wake = latest_wake_time() or time(7, 0)
 
 with st.form("mood_form"):
+    # --- 基本（必須・常に表示） ---
     col1, col2 = st.columns(2)
     with col1:
         mood = st.slider(
@@ -252,20 +257,29 @@ with st.form("mood_form"):
             "起床時刻", value=init_wake, step=300,
             help="いつもより遅く/早く起きた日がないか見るために使います",
         )
-    tags = st.text_input(
-        "出来事（カンマ区切り・任意）", value=init_tags or "",
-        placeholder="例: 仕事, 通院, 子育て",
-    )
-    note = st.text_area(
-        "一言メモ（任意）", value=init_note or "",
-        placeholder="書きたい時だけで大丈夫です",
-        height=80,
-    )
+
+    # --- 任意（折りたたみ・書きたい日だけ） ---
+    _has_optional = bool(init_tags or init_recovery or init_note)
+    with st.expander("もう少し書く（任意）", expanded=_has_optional):
+        tags = st.text_input(
+            "出来事（カンマ区切り）", value=init_tags or "",
+            placeholder="例: 仕事, 通院, 子育て",
+        )
+        recovery = st.text_input(
+            "今日ちょっと良かったこと", value=init_recovery or "",
+            placeholder="例: 散歩した、よく眠れた、友人と話した",
+            help="書けない日はスキップで大丈夫です",
+        )
+        note = st.text_area(
+            "一言メモ", value=init_note or "",
+            placeholder="書きたい時だけで大丈夫です",
+            height=80,
+        )
 
     submitted = st.form_submit_button("記録する", use_container_width=True)
     if submitted:
         upsert(log_date, mood, sleep_hours, energy, note, tags,
-               weather, wake_time)
+               weather, wake_time, recovery=recovery)
         st.success(f"{log_date} の記録を保存しました")
 
 st.divider()
