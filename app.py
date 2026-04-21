@@ -133,6 +133,11 @@ with st.sidebar:
         _hub_url,
         use_container_width=True,
     )
+    st.link_button(
+        "💬 ご意見・感想",
+        "https://docs.google.com/forms/d/e/1FAIpQLSetCb_dHG6JFsUzhK9ZYxydgh5cP8w07Q6NRO4ouEM7BvSTRw/viewform",
+        use_container_width=True,
+    )
     st.divider()
     st.header("位置設定")
     st.caption("天気データの取得に使います")
