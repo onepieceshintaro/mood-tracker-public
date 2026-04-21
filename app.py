@@ -125,9 +125,12 @@ if "location" not in st.session_state:
     }
 
 with st.sidebar:
+    _hub_url = "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/"
+    if CURRENT_USER_ID:
+        _hub_url += f"?u={CURRENT_USER_ID}"
     st.link_button(
         "🏠 HOME に戻る",
-        "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/",
+        _hub_url,
         use_container_width=True,
     )
     st.divider()
