@@ -1,0 +1,8 @@
+streamlit>=1.38
+pandas>=2.1
+plotly>=5.20
+scikit-learn>=1.4
+requests>=2.31
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+python-dotenv>=1.0
