@@ -75,3 +75,12 @@ def init_db() -> None:
                 PRIMARY KEY (user_id, log_date)
             )
         """))
+
+        # user_nicknames（3アプリ共通・プレフィックス無し）
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_nicknames (
+                user_id TEXT PRIMARY KEY,
+                nickname TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """))
