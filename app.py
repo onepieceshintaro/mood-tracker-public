@@ -240,7 +240,7 @@ def load_all(user_id=None):
 
 
 # -------------- UI --------------
-st.set_page_config(page_title="気分トラッカー", page_icon="📝", layout="centered")
+st.set_page_config(page_title="気分の記録", page_icon="📝", layout="centered")
 CURRENT_USER_ID = render_account_sidebar()
 init_db()
 
