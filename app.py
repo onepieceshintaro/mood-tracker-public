@@ -466,11 +466,31 @@ if view.empty:
     st.info("この期間の記録はまだありません。")
     st.stop()
 
-mean_mood = view["mood"].mean()
-std_mood = view["mood"].std(ddof=0) if len(view) > 1 else 0
+# --- ベースラインは「直近30日」で固定（表示期間を変えてもズレない） ---
+BASELINE_WINDOW_DAYS = 30
+BASELINE_MIN_SAMPLES = 7
+
+_bl_cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=BASELINE_WINDOW_DAYS)
+_bl_df = df[df["log_date"] >= _bl_cutoff]
+
+if len(_bl_df) >= BASELINE_MIN_SAMPLES:
+    mean_mood = _bl_df["mood"].mean()
+    std_mood = _bl_df["mood"].std(ddof=0) if len(_bl_df) > 1 else 0
+    baseline_source = f"直近{BASELINE_WINDOW_DAYS}日（{len(_bl_df)}件）"
+else:
+    # 直近30日が少なすぎるときは全期間をベースラインにフォールバック
+    mean_mood = df["mood"].mean()
+    std_mood = df["mood"].std(ddof=0) if len(df) > 1 else 0
+    baseline_source = f"全期間（{len(df)}件・データ蓄積中）"
+
 lower, upper = mean_mood - 2 * std_mood, mean_mood + 2 * std_mood
 view["anomaly"] = (view["mood"] < lower) | (view["mood"] > upper)
 view["mood_ma7"] = view["mood"].rolling(7, min_periods=1).mean()
+
+st.caption(
+    f"📊 いつもの範囲は **{baseline_source}** の平均 ± 2σ から算出しています。"
+    "表示期間を変えてもベースラインは固定です。"
+)
 
 fig = go.Figure()
 fig.add_hrect(y0=lower, y1=upper,
