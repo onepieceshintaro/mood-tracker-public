@@ -393,6 +393,12 @@ with st.form("mood_form"):
             default=_init_tag_list,
             format_func=_format_tag,
         )
+        st.caption(
+            "目安：**仕事**（業務・職場）／"
+            "**人間関係**（家族以外：友人・同僚・知人など）／"
+            "**家族**／**通院・治療**／**休息**（何もしない日・昼寝など）／"
+            "**外出**（買い物・散歩・外食など）／**運動**"
+        )
         recovery = st.text_input(
             "今日ちょっと良かったこと", value=init_recovery or "",
             placeholder="例: 散歩した、よく眠れた、友人と話した",
