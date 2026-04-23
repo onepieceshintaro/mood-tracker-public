@@ -416,6 +416,15 @@ with st.form("mood_form"):
         upsert(log_date, mood, sleep_hours, energy, note, tags_to_save,
                weather, wake_time, recovery=recovery)
         st.success(f"{log_date} の記録を保存しました")
+        # スマホでもサイドバーを開かずにHOMEへ戻れるよう、メインエリアに導線を置く
+        _done_hub_url = "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/"
+        if CURRENT_USER_ID:
+            _done_hub_url += f"?u={CURRENT_USER_ID}"
+        st.link_button(
+            "🏠 HOMEに戻る",
+            _done_hub_url,
+            use_container_width=True,
+        )
 
 st.divider()
 
