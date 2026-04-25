@@ -587,6 +587,46 @@ if not anom.empty:
                 st.write(row["note"])
             st.divider()
 
+# 気圧×気分の散布図（連続値での可視化。閾値判定の補完）
+if "pressure" in df.columns:
+    pm = df[df["pressure"].notna() & df["mood"].notna()][["pressure", "mood"]]
+    if len(pm) >= 5:
+        st.subheader("🌡 気圧 × 気分")
+        st.caption(
+            "横軸が気圧（hPa）、縦軸が気分（1-10）。"
+            "点がばらけていれば気圧の影響は弱く、右下/左上に偏ると影響が見えやすい。"
+        )
+        import numpy as np
+        x = pm["pressure"].to_numpy()
+        y = pm["mood"].to_numpy()
+        # 相関係数（標本標準偏差0なら計算できないのでガード）
+        if x.std() > 0 and y.std() > 0:
+            corr = float(np.corrcoef(x, y)[0, 1])
+        else:
+            corr = 0.0
+        # 1次回帰のトレンドライン
+        slope, intercept = np.polyfit(x, y, 1)
+        x_line = np.linspace(x.min(), x.max(), 50)
+        y_line = slope * x_line + intercept
+
+        fig_pm = px.scatter(
+            pm, x="pressure", y="mood",
+            labels={"pressure": "気圧 (hPa)", "mood": "気分"},
+            opacity=0.6,
+        )
+        fig_pm.add_scatter(
+            x=x_line, y=y_line, mode="lines",
+            name="トレンド", line=dict(color="orange", dash="dash"),
+        )
+        fig_pm.update_yaxes(range=[0, 10])
+        st.plotly_chart(fig_pm, use_container_width=True)
+        st.caption(
+            f"相関係数 r = {corr:+.2f}（n={len(pm)}）。"
+            "|r|≥0.3で弱い相関、≥0.5でそこそこ、≥0.7で強い相関の目安。"
+        )
+    else:
+        st.caption("気圧×気分の散布図は記録5件以上で表示されます。")
+
 st.subheader("🔮 「翌日の気分」との相関")
 st.caption("どの指標が翌日の気分と関係しそうか。絶対値が大きいほど影響が強い傾向。")
 
