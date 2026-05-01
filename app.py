@@ -537,13 +537,13 @@ fig.add_hline(y=mean_mood, line_dash="dot", line_color="#888",
 normal = view[~view["anomaly"]]
 fig.add_trace(go.Scatter(x=normal["log_date"], y=normal["mood"],
     mode="lines+markers", name="気分",
-    line=dict(color="#4a90e2"), marker=dict(size=9)))
+    line=dict(color="#4a90e2"), marker=dict(size=11)))
 
 anom = view[view["anomaly"]]
 if not anom.empty:
     fig.add_trace(go.Scatter(x=anom["log_date"], y=anom["mood"],
         mode="markers", name="いつもと違う日",
-        marker=dict(color="#e74c3c", size=14,
+        marker=dict(color="#e74c3c", size=16,
                     symbol="circle-open", line=dict(width=3))))
 
 fig.add_trace(go.Scatter(x=view["log_date"], y=view["mood_ma7"],
@@ -555,8 +555,13 @@ fig.update_layout(
     xaxis=dict(title="日付"),
     hovermode="x unified",
     height=400, margin=dict(l=10, r=10, t=30, b=10),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                xanchor="right", x=1),
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(
+    fig, use_container_width=True,
+    config={"displayModeBar": False},
+)
 
 # 気づきメモ（オプトイン）：直近7日のうち何日が30日平均より下か、事実だけ表示
 try:
