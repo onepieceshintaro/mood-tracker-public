@@ -305,6 +305,24 @@ with st.sidebar:
                 del st.session_state[k]
             st.rerun()
 
+    # ---- 気づきメモ（オプトイン）----
+    st.divider()
+    with st.expander("🪶 気づきメモ（任意）"):
+        st.caption(
+            "気分が下がっている期間を、グラフの下に**事実だけ**そっと表示します。"
+            "判定や声がけはしません。デフォルトはOFF。"
+        )
+        from preferences import get_notify_mood_dip, set_notify_mood_dip
+        _current_pref = get_notify_mood_dip(CURRENT_USER_ID) if CURRENT_USER_ID else False
+        new_pref = st.checkbox(
+            "下がっている傾向に気づきたい",
+            value=_current_pref,
+            key="pref_notify_mood_dip",
+        )
+        if new_pref != _current_pref and CURRENT_USER_ID:
+            set_notify_mood_dip(CURRENT_USER_ID, new_pref)
+            st.toast("設定を保存しました", icon="✅")
+
 lat = st.session_state["location"]["lat"]
 lon = st.session_state["location"]["lon"]
 
@@ -539,6 +557,22 @@ fig.update_layout(
     height=400, margin=dict(l=10, r=10, t=30, b=10),
 )
 st.plotly_chart(fig, use_container_width=True)
+
+# 気づきメモ（オプトイン）：直近7日のうち何日が30日平均より下か、事実だけ表示
+try:
+    from preferences import get_notify_mood_dip
+    if CURRENT_USER_ID and get_notify_mood_dip(CURRENT_USER_ID):
+        _recent7 = view.tail(7)
+        if len(_recent7) >= 3:
+            _below = int((_recent7["mood"] < mean_mood).sum())
+            if _below >= 4:
+                st.caption(
+                    f"🪶 直近{len(_recent7)}日のうち **{_below}日** が、"
+                    f"ベースライン平均（{mean_mood:.1f}）より下でした。"
+                )
+except Exception:
+    # 受動表示のため、失敗しても無視
+    pass
 
 if len(view) >= 3:
     st.subheader("📅 曜日別の気分")

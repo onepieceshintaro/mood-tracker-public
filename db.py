@@ -92,3 +92,12 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             )
         """))
+
+        # user_preferences（受動的な気づきメモ等のオプトイン設定）
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id TEXT PRIMARY KEY,
+                notify_mood_dip {"BOOLEAN" if pg else "INTEGER"} NOT NULL DEFAULT {"FALSE" if pg else "0"},
+                updated_at TEXT
+            )
+        """))
