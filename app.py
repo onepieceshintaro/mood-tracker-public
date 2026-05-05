@@ -590,7 +590,7 @@ if not anom.empty:
             st.divider()
 
 # ===== 📂 自分の傾向を見る（折りたたみ） =====
-with st.expander("📂 自分の傾向（曜日別・相関）", expanded=False):
+with st.expander("📂 自分の傾向", expanded=False):
     # 曜日別の気分
     if len(view) >= 3:
         st.markdown("**📅 曜日別の気分**")
@@ -695,7 +695,7 @@ with st.expander("📂 自分の傾向（曜日別・相関）", expanded=False)
         )
 
 st.divider()
-st.markdown("#### 📂 翌日への影響")
+st.markdown("#### 📂 明日の気分のヒント")
 st.caption(
     "「今日のXがどう翌日の気分に効いてそうか」を見るセクションです。"
     "数字が気になる時だけスクロールしてください。"
@@ -758,7 +758,7 @@ else:
 
     # ----- モデルの精度（折りたたみ・技術的） -----
     with st.expander(
-        "📂 モデルの精度（技術指標）", expanded=False,
+        "📂 モデルの精度", expanded=False,
     ):
         st.caption(
             "予測モデルの統計的な精度指標です。"
