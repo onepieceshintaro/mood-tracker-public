@@ -726,24 +726,101 @@ else:
         "R²が低い場合は偶然の可能性あり。継続記録で精度が上がります。"
     )
 
-    with st.expander("予測 vs 実測を見る"):
-        pred_df = result["predictions"].copy()
-        fig_pred = go.Figure()
-        fig_pred.add_trace(go.Scatter(
-            x=pred_df["日付"], y=pred_df["実測"],
-            mode="lines+markers", name="実測",
-            line=dict(color="#4a90e2"),
-        ))
-        fig_pred.add_trace(go.Scatter(
-            x=pred_df["日付"], y=pred_df["予測"],
-            mode="lines+markers", name="予測",
-            line=dict(color="#e74c3c", dash="dash"),
-        ))
-        fig_pred.update_layout(
-            yaxis=dict(range=[0.5, 10.5], title="気分（翌日）"),
-            height=350, margin=dict(l=10, r=10, t=10, b=10),
+    # ----- 明日の気分予測（事前に分かる、actionable） -----
+    nd = result.get("next_day")
+    if nd:
+        st.markdown("**🔮 明日の気分予測**")
+        c_nd1, c_nd2 = st.columns([1, 2])
+        with c_nd1:
+            st.metric(
+                f"{nd['date'].strftime('%-m/%-d') if hasattr(nd['date'], 'strftime') else nd['date']} の予測",
+                f"{nd['predicted_mood']:.1f}",
+                help="1〜10。今日までの特徴量（睡眠・気圧・気分平均など）から線形回帰で計算",
+            )
+        with c_nd2:
+            base = nd["based_on_date"]
+            base_str = base.strftime("%-m/%-d") if hasattr(base, "strftime") else str(base)
+            st.caption(
+                f"📌 **{base_str}** までの記録をもとに、線形回帰モデルで予測した値です。"
+                "あくまで参考値で、当てるためのものではなく**自分の調子を予測する素材**として使ってください。"
+            )
+            if nd.get("clamped"):
+                st.caption(
+                    f"⚠️ 計算上の生の値は {nd['raw_prediction']:.2f} でしたが、"
+                    "1〜10 の範囲に丸めて表示しています。"
+                )
+            if result.get("cv_r2") is not None and result["cv_r2"] < 0.2:
+                st.caption(
+                    "⚠️ 交差検証 R² が低めです。**この予測は当てにならない時期**かもしれません。"
+                    "記録を続けると精度が上がります。"
+                )
+
+    # ----- 予測 vs 実測（CV：未学習相当） -----
+    with st.expander("予測 vs 実測を見る（過去の各日を未学習として予測）", expanded=False):
+        st.caption(
+            "💡 **各日について、その日を学習から外した状態で予測した値**です。"
+            "下に書いた「学習データへの当てはめ」とは別物で、**実質的な予測力**を表します。"
         )
-        st.plotly_chart(fig_pred, use_container_width=True)
+        cv_df = result.get("cv_predictions")
+        if cv_df is not None and len(cv_df) > 0:
+            fig_cv = go.Figure()
+            fig_cv.add_trace(go.Scatter(
+                x=cv_df["日付"], y=cv_df["実測"],
+                mode="lines+markers", name="実測",
+                line=dict(color="#4a90e2"),
+            ))
+            fig_cv.add_trace(go.Scatter(
+                x=cv_df["日付"], y=cv_df["予測（CV・未学習相当）"],
+                mode="lines+markers", name="予測（未学習相当）",
+                line=dict(color="#e74c3c", dash="dash"),
+            ))
+            fig_cv.update_layout(
+                yaxis=dict(range=[0.5, 10.5], title="気分（翌日）"),
+                height=350, margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1),
+            )
+            st.plotly_chart(
+                fig_cv, use_container_width=True,
+                config={"displayModeBar": False},
+            )
+            st.caption(
+                "実測（青）と予測（赤・点線）が重なっていれば、その日の気分が"
+                "前日までの特徴量からよく説明できる、ということ。"
+                "ズレが大きい日は、モデルが捉えられていない要因が働いている日です。"
+            )
+        else:
+            st.caption("CV予測が計算できませんでした。")
+
+    with st.expander("📚 学習データへの当てはめ（参考まで・本当の予測ではない）", expanded=False):
+        st.caption(
+            "⚠️ こちらは **モデルが自分で学習した値に対して当てはめた**結果なので、"
+            "ピッタリ重なるのは当然です。**「予測の精度を見るためのグラフではない」**ことに注意。"
+            "予測力の評価は上の **CV予測** を見てください。"
+        )
+        ins_df = result.get("in_sample_predictions")
+        if ins_df is not None and len(ins_df) > 0:
+            fig_ins = go.Figure()
+            fig_ins.add_trace(go.Scatter(
+                x=ins_df["日付"], y=ins_df["実測"],
+                mode="lines+markers", name="実測",
+                line=dict(color="#4a90e2"),
+            ))
+            fig_ins.add_trace(go.Scatter(
+                x=ins_df["日付"], y=ins_df["当てはめ"],
+                mode="lines+markers", name="当てはめ",
+                line=dict(color="#aaaaaa", dash="dot"),
+            ))
+            fig_ins.update_layout(
+                yaxis=dict(range=[0.5, 10.5], title="気分（翌日）"),
+                height=300, margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1),
+            )
+            st.plotly_chart(
+                fig_ins, use_container_width=True,
+                config={"displayModeBar": False},
+            )
 
 notes_df = view[view["note"].fillna("").str.len() > 0][
     ["log_date", "mood", "note"]

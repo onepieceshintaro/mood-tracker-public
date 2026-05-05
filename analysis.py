@@ -130,14 +130,16 @@ def train_mood_predictor(df: pd.DataFrame, min_samples: int = 14):
     """線形回帰で翌日の気分を予測。データ不足時は Noneを返す。
     戻り値 dict:
       - n_train: 学習に使えたサンプル数
-      - train_r2: 学習データへのR²
-      - cv_r2: 5分割CVのR²平均
+      - train_r2: 学習データへのR²（過学習評価）
+      - cv_r2: 5分割CVのR²平均（実質的な予測力）
       - importance: 標準化係数（重要度 DataFrame）
-      - predictions: 実測 vs 予測 DataFrame
+      - in_sample_predictions: 学習データへの当てはめ（参考）
+      - cv_predictions: 各日を一度学習から外して予測した値（実質的な予測 vs 実測）
+      - next_day: 「明日の予測」 dict {"date", "predicted_mood", "based_on"}
       - features_used: 使用した特徴量リスト
     """
     from sklearn.linear_model import LinearRegression
-    from sklearn.model_selection import cross_val_score
+    from sklearn.model_selection import cross_val_score, cross_val_predict
 
     feat = build_feature_frame(df)
     features = [f for f in ALL_FEATURES if f in feat.columns]
@@ -151,13 +153,21 @@ def train_mood_predictor(df: pd.DataFrame, min_samples: int = 14):
 
     model = LinearRegression().fit(X, y)
 
-    # CV R²（サンプル少ない時は無理しない）
+    # CV R²と CV予測（サンプル少ない時は無理しない）
+    cv_n = min(5, max(2, len(train) // 3))
     try:
-        cv_r2 = cross_val_score(
-            model, X, y, cv=min(5, len(train) // 3), scoring="r2"
-        ).mean()
+        cv_r2 = cross_val_score(model, X, y, cv=cv_n, scoring="r2").mean()
     except Exception:
         cv_r2 = None
+    try:
+        cv_y_pred = cross_val_predict(LinearRegression(), X, y, cv=cv_n)
+        cv_predictions = pd.DataFrame({
+            "日付": train["log_date"].reset_index(drop=True),
+            "実測": y.reset_index(drop=True),
+            "予測（CV・未学習相当）": cv_y_pred,
+        })
+    except Exception:
+        cv_predictions = None
 
     # 標準化係数（特徴量の寄与度）
     X_std = (X - X.mean()) / X.std(ddof=0).replace(0, 1)
@@ -169,17 +179,38 @@ def train_mood_predictor(df: pd.DataFrame, min_samples: int = 14):
     importance["寄与度（絶対値）"] = importance["効き方"].abs().round(3)
     importance = importance.sort_values("寄与度（絶対値）", ascending=False).reset_index(drop=True)
 
-    predictions = pd.DataFrame({
+    in_sample_predictions = pd.DataFrame({
         "日付": train["log_date"].reset_index(drop=True),
         "実測": y.reset_index(drop=True),
-        "予測": model.predict(X),
+        "当てはめ": model.predict(X),
     })
+
+    # 「明日の予測」：特徴量がそろっている最新の行から、翌日の気分を予測
+    next_day = None
+    feat_ready = feat.dropna(subset=features)
+    if len(feat_ready) > 0:
+        last_row = feat_ready.iloc[-1]
+        try:
+            raw_pred = float(model.predict([last_row[features].values])[0])
+            clamped = max(1.0, min(10.0, raw_pred))
+            base_date = pd.to_datetime(last_row["log_date"]).date()
+            next_day = {
+                "date": (pd.to_datetime(last_row["log_date"]) + pd.Timedelta(days=1)).date(),
+                "based_on_date": base_date,
+                "predicted_mood": round(clamped, 1),
+                "raw_prediction": round(raw_pred, 2),
+                "clamped": raw_pred != clamped,
+            }
+        except Exception:
+            next_day = None
 
     return {
         "n_train": len(train),
         "train_r2": round(model.score(X, y), 3),
         "cv_r2": round(cv_r2, 3) if cv_r2 is not None else None,
         "importance": importance,
-        "predictions": predictions,
+        "in_sample_predictions": in_sample_predictions,
+        "cv_predictions": cv_predictions,
+        "next_day": next_day,
         "features_used": [FEATURE_JP.get(f, f) for f in features],
     }
