@@ -307,7 +307,7 @@ with st.sidebar:
 
     # ---- 気づきメモ（オプトイン）----
     st.divider()
-    with st.expander("🪶 気づきメモ（任意）"):
+    with st.expander("🪶 気づきメモ"):
         st.caption(
             "気分が下がっている期間を、グラフの下に**事実だけ**そっと表示します。"
             "判定や声がけはしません。デフォルトはOFF。"
@@ -404,7 +404,7 @@ with st.form("mood_form"):
     # --- 任意（折りたたみ・書きたい日だけ） ---
     _init_tag_list = [t for t in _parse_tag_string(init_tags or "") if t in TAG_OPTIONS]
     _has_optional = bool(_init_tag_list or init_recovery or init_note)
-    with st.expander("もう少し書く（任意）", expanded=_has_optional):
+    with st.expander("もう少し書く", expanded=_has_optional):
         tags_selected = st.multiselect(
             "出来事（複数選択可）",
             TAG_OPTIONS,
@@ -590,7 +590,7 @@ if not anom.empty:
             st.divider()
 
 # ===== 📂 自分の傾向を見る（折りたたみ） =====
-with st.expander("📂 自分の傾向を見る（曜日別・気分との相関）", expanded=False):
+with st.expander("📂 自分の傾向（曜日別・相関）", expanded=False):
     # 曜日別の気分
     if len(view) >= 3:
         st.markdown("**📅 曜日別の気分**")
@@ -695,13 +695,13 @@ with st.expander("📂 自分の傾向を見る（曜日別・気分との相関
         )
 
 st.divider()
-st.markdown("#### 📂 翌日への影響を見る（任意）")
+st.markdown("#### 📂 翌日への影響")
 st.caption(
     "「今日のXがどう翌日の気分に効いてそうか」を見るセクションです。"
     "数字が気になる時だけスクロールしてください。"
 )
 
-st.markdown("##### 🤖 翌日の気分を予測してみる")
+st.markdown("##### 🤖 明日の気分予測")
 result = train_mood_predictor(df, min_samples=14)
 
 if "importance" not in result:
@@ -758,7 +758,7 @@ else:
 
     # ----- モデルの精度（折りたたみ・技術的） -----
     with st.expander(
-        "📂 モデルの精度を見る（技術指標・参考まで）", expanded=False,
+        "📂 モデルの精度（技術指標）", expanded=False,
     ):
         st.caption(
             "予測モデルの統計的な精度指標です。"
@@ -783,7 +783,7 @@ else:
 
     # ----- 寄与度の全項目（折りたたみ・参考まで） -----
     with st.expander(
-        "📂 全項目の寄与度を見る（参考まで）", expanded=False,
+        "📂 全項目の寄与度", expanded=False,
     ):
         st.caption(
             "予測モデルが見ている各特徴量の効き方。"
@@ -841,7 +841,7 @@ else:
             config={"displayModeBar": False},
         )
 
-st.markdown("##### 🔮 何が「翌日の気分」に効いているのか")
+st.markdown("##### 🔮 翌日の気分との相関")
 st.caption(
     "予測値の裏側で、どの指標が翌日の気分と相関しているかを見ます。"
     "絶対値が大きいほど影響が強い傾向。"
