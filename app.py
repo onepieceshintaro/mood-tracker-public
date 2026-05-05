@@ -716,7 +716,6 @@ else:
     # ----- 明日の気分予測（事前に分かる、actionable） -----
     nd = result.get("next_day")
     if nd:
-        st.markdown("**🔮 明日の気分予測**")
         c_nd1, c_nd2 = st.columns([1, 2])
         with c_nd1:
             st.metric(
