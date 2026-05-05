@@ -701,7 +701,7 @@ st.caption(
     "数字が気になる時だけスクロールしてください。"
 )
 
-st.markdown("##### 🤖 翌日の気分を予測してみる（実験）")
+st.markdown("##### 🤖 翌日の気分を予測してみる")
 result = train_mood_predictor(df, min_samples=14)
 
 if "importance" not in result:
@@ -841,36 +841,6 @@ else:
             fig_cv, use_container_width=True,
             config={"displayModeBar": False},
         )
-
-    with st.expander("📚 学習データへの当てはめ（参考まで・本当の予測ではない）", expanded=False):
-        st.caption(
-            "⚠️ こちらは **モデルが自分で学習した値に対して当てはめた**結果なので、"
-            "ピッタリ重なるのは当然です。**「予測の精度を見るためのグラフではない」**ことに注意。"
-            "予測力の評価は上の **CV予測** を見てください。"
-        )
-        ins_df = result.get("in_sample_predictions")
-        if ins_df is not None and len(ins_df) > 0:
-            fig_ins = go.Figure()
-            fig_ins.add_trace(go.Scatter(
-                x=ins_df["日付"], y=ins_df["実測"],
-                mode="lines+markers", name="実測",
-                line=dict(color="#4a90e2"),
-            ))
-            fig_ins.add_trace(go.Scatter(
-                x=ins_df["日付"], y=ins_df["当てはめ"],
-                mode="lines+markers", name="当てはめ",
-                line=dict(color="#aaaaaa", dash="dot"),
-            ))
-            fig_ins.update_layout(
-                yaxis=dict(range=[0.5, 10.5], title="気分（翌日）"),
-                height=300, margin=dict(l=10, r=10, t=10, b=10),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1),
-            )
-            st.plotly_chart(
-                fig_ins, use_container_width=True,
-                config={"displayModeBar": False},
-            )
 
 st.markdown("##### 🔮 何が「翌日の気分」に効いているのか")
 st.caption(
