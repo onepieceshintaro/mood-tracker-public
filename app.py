@@ -811,42 +811,36 @@ else:
             "R²が低い場合は偶然の可能性あり。継続記録で精度が上がります。"
         )
 
-    # ----- 予測 vs 実測（CV：未学習相当） -----
-    with st.expander("予測 vs 実測を見る（過去の各日を未学習として予測）", expanded=False):
+    # ----- 予測 vs 実測（CV：未学習相当）：直感的なので外出し -----
+    cv_df = result.get("cv_predictions")
+    if cv_df is not None and len(cv_df) > 0:
+        st.markdown("**📈 過去の予測の当たり具合（予測 vs 実測）**")
         st.caption(
-            "💡 **各日について、その日を学習から外した状態で予測した値**です。"
-            "下に書いた「学習データへの当てはめ」とは別物で、**実質的な予測力**を表します。"
+            "各日について、その日を学習から外した状態で予測した値（青：実測 ／ 赤・点線：予測）。"
+            "重なっていれば「前日までの特徴量からよく説明できた日」、"
+            "ズレが大きい日は「モデルが捉えられていない要因が働いていた日」です。"
         )
-        cv_df = result.get("cv_predictions")
-        if cv_df is not None and len(cv_df) > 0:
-            fig_cv = go.Figure()
-            fig_cv.add_trace(go.Scatter(
-                x=cv_df["日付"], y=cv_df["実測"],
-                mode="lines+markers", name="実測",
-                line=dict(color="#4a90e2"),
-            ))
-            fig_cv.add_trace(go.Scatter(
-                x=cv_df["日付"], y=cv_df["予測（CV・未学習相当）"],
-                mode="lines+markers", name="予測（未学習相当）",
-                line=dict(color="#e74c3c", dash="dash"),
-            ))
-            fig_cv.update_layout(
-                yaxis=dict(range=[0.5, 10.5], title="気分（翌日）"),
-                height=350, margin=dict(l=10, r=10, t=10, b=10),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1),
-            )
-            st.plotly_chart(
-                fig_cv, use_container_width=True,
-                config={"displayModeBar": False},
-            )
-            st.caption(
-                "実測（青）と予測（赤・点線）が重なっていれば、その日の気分が"
-                "前日までの特徴量からよく説明できる、ということ。"
-                "ズレが大きい日は、モデルが捉えられていない要因が働いている日です。"
-            )
-        else:
-            st.caption("CV予測が計算できませんでした。")
+        fig_cv = go.Figure()
+        fig_cv.add_trace(go.Scatter(
+            x=cv_df["日付"], y=cv_df["実測"],
+            mode="lines+markers", name="実測",
+            line=dict(color="#4a90e2"),
+        ))
+        fig_cv.add_trace(go.Scatter(
+            x=cv_df["日付"], y=cv_df["予測（CV・未学習相当）"],
+            mode="lines+markers", name="予測（未学習相当）",
+            line=dict(color="#e74c3c", dash="dash"),
+        ))
+        fig_cv.update_layout(
+            yaxis=dict(range=[0.5, 10.5], title="気分（翌日）"),
+            height=320, margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="right", x=1),
+        )
+        st.plotly_chart(
+            fig_cv, use_container_width=True,
+            config={"displayModeBar": False},
+        )
 
     with st.expander("📚 学習データへの当てはめ（参考まで・本当の予測ではない）", expanded=False):
         st.caption(
