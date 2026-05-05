@@ -711,13 +711,6 @@ if "importance" not in result:
     )
     st.caption("記録を続けていくと、ここに予測モデルと特徴量の寄与度が表示されます。")
 else:
-    col1, col2, col3 = st.columns(3)
-    col1.metric("学習データ", f"{result['n_train']} 日")
-    col2.metric("訓練R²", f"{result['train_r2']:.2f}")
-    if result["cv_r2"] is not None:
-        col3.metric("交差検証R²", f"{result['cv_r2']:.2f}",
-                    help="-1〜1。1に近いほど予測が当たる")
-
     imp = result["importance"]
 
     # ----- 明日の気分予測（事前に分かる、actionable） -----
@@ -763,6 +756,31 @@ else:
                 "符号がプラス＝翌日の気分を上げる方向／マイナス＝下げる方向に効いている"
                 "とモデルが見ている、という意味です。"
             )
+
+    # ----- モデルの精度（折りたたみ・技術的） -----
+    with st.expander(
+        "📂 モデルの精度を見る（技術指標・参考まで）", expanded=False,
+    ):
+        st.caption(
+            "予測モデルの統計的な精度指標です。"
+            "本人の振り返りに必須ではないので、興味があれば。"
+        )
+        _m1, _m2, _m3 = st.columns(3)
+        _m1.metric("学習データ", f"{result['n_train']} 日")
+        _m2.metric(
+            "訓練R²", f"{result['train_r2']:.2f}",
+            help="学習データへの当てはまり度（過学習リスク）",
+        )
+        if result["cv_r2"] is not None:
+            _m3.metric(
+                "交差検証R²", f"{result['cv_r2']:.2f}",
+                help="−1〜1。1に近いほど予測が当たる。実質的な予測力の目安",
+            )
+        st.caption(
+            "💡 R²が低い場合は偶然の可能性あり。"
+            "0.2を下回る時は予測値の上に⚠️が出ます。"
+            "継続記録で精度が上がります。"
+        )
 
     # ----- 寄与度の全項目（折りたたみ・参考まで） -----
     with st.expander(
