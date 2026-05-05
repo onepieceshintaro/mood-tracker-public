@@ -718,25 +718,7 @@ else:
         col3.metric("交差検証R²", f"{result['cv_r2']:.2f}",
                     help="-1〜1。1に近いほど予測が当たる")
 
-    st.markdown("**特徴量の寄与度（翌日の気分を上げる/下げる要因）**")
     imp = result["importance"]
-    fig_imp = px.bar(
-        imp.head(10),
-        x="効き方", y="特徴量", orientation="h",
-        color="効き方", color_continuous_scale="RdBu",
-        range_color=[-imp["効き方"].abs().max(), imp["効き方"].abs().max()],
-        text=imp.head(10)["効き方"].apply(lambda v: f"{v:+.2f}"),
-    )
-    fig_imp.update_layout(
-        height=max(200, 40 * len(imp.head(10))),
-        margin=dict(l=10, r=10, t=10, b=10),
-        yaxis=dict(categoryorder="total ascending"),
-    )
-    st.plotly_chart(fig_imp, use_container_width=True)
-    st.caption(
-        "プラス：翌日の気分を上げる方向／マイナス：下げる方向。"
-        "R²が低い場合は偶然の可能性あり。継続記録で精度が上がります。"
-    )
 
     # ----- 明日の気分予測（事前に分かる、actionable） -----
     nd = result.get("next_day")
@@ -766,6 +748,50 @@ else:
                     "⚠️ 交差検証 R² が低めです。**この予測は当てにならない時期**かもしれません。"
                     "記録を続けると精度が上がります。"
                 )
+
+        # ----- 予測値の根拠（寄与度の上位3つを文章化） -----
+        if imp is not None and not imp.empty:
+            _top3 = imp.head(3)
+            st.markdown("💡 **この予測値の根拠（モデルが効いていると見ている上位3つ）**")
+            for _, _row in _top3.iterrows():
+                _coef = _row["効き方"]
+                _arrow = "↑ 上げる方向" if _coef > 0 else "↓ 下げる方向"
+                st.markdown(
+                    f"- **{_row['特徴量']}**（{_coef:+.2f}・{_arrow}）"
+                )
+            st.caption(
+                "符号がプラス＝翌日の気分を上げる方向／マイナス＝下げる方向に効いている"
+                "とモデルが見ている、という意味です。"
+            )
+
+    # ----- 寄与度の全項目（折りたたみ・参考まで） -----
+    with st.expander(
+        "📂 全項目の寄与度を見る（参考まで）", expanded=False,
+    ):
+        st.caption(
+            "予測モデルが見ている各特徴量の効き方。"
+            "上の「予測値の根拠」は、ここから上位3つを抜粋したものです。"
+        )
+        fig_imp = px.bar(
+            imp.head(10),
+            x="効き方", y="特徴量", orientation="h",
+            color="効き方", color_continuous_scale="RdBu",
+            range_color=[-imp["効き方"].abs().max(), imp["効き方"].abs().max()],
+            text=imp.head(10)["効き方"].apply(lambda v: f"{v:+.2f}"),
+        )
+        fig_imp.update_layout(
+            height=max(200, 40 * len(imp.head(10))),
+            margin=dict(l=10, r=10, t=10, b=10),
+            yaxis=dict(categoryorder="total ascending"),
+        )
+        st.plotly_chart(
+            fig_imp, use_container_width=True,
+            config={"displayModeBar": False},
+        )
+        st.caption(
+            "プラス：翌日の気分を上げる方向／マイナス：下げる方向。"
+            "R²が低い場合は偶然の可能性あり。継続記録で精度が上がります。"
+        )
 
     # ----- 予測 vs 実測（CV：未学習相当） -----
     with st.expander("予測 vs 実測を見る（過去の各日を未学習として予測）", expanded=False):
