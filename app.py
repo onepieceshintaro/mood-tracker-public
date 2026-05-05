@@ -701,29 +701,6 @@ st.caption(
     "数字が気になる時だけスクロールしてください。"
 )
 
-st.markdown("##### 🔮 「翌日の気分」との相関")
-st.caption("どの指標が翌日の気分と関係しそうか。絶対値が大きいほど影響が強い傾向。")
-
-corr_df = correlations_with_next_mood(df)
-if corr_df.empty:
-    st.info("記録が5日分以上（連続して）溜まると分析できます。")
-else:
-    fig_corr = px.bar(
-        corr_df.head(10),
-        x="相関係数", y="特徴量", orientation="h",
-        color="相関係数", color_continuous_scale="RdBu",
-        range_color=[-1, 1],
-        text=corr_df.head(10)["相関係数"].apply(lambda v: f"{v:+.2f}"),
-    )
-    fig_corr.update_layout(
-        height=max(200, 40 * len(corr_df.head(10))),
-        margin=dict(l=10, r=10, t=10, b=10),
-        yaxis=dict(categoryorder="total ascending"),
-    )
-    st.plotly_chart(fig_corr, use_container_width=True)
-    with st.expander("全項目の数値を見る"):
-        st.dataframe(corr_df, use_container_width=True)
-
 st.markdown("##### 🤖 翌日の気分を予測してみる（実験）")
 result = train_mood_predictor(df, min_samples=14)
 
@@ -856,6 +833,35 @@ else:
                 fig_ins, use_container_width=True,
                 config={"displayModeBar": False},
             )
+
+st.markdown("##### 🔮 何が「翌日の気分」に効いているのか")
+st.caption(
+    "予測値の裏側で、どの指標が翌日の気分と相関しているかを見ます。"
+    "絶対値が大きいほど影響が強い傾向。"
+)
+
+corr_df = correlations_with_next_mood(df)
+if corr_df.empty:
+    st.info("記録が5日分以上（連続して）溜まると分析できます。")
+else:
+    fig_corr = px.bar(
+        corr_df.head(10),
+        x="相関係数", y="特徴量", orientation="h",
+        color="相関係数", color_continuous_scale="RdBu",
+        range_color=[-1, 1],
+        text=corr_df.head(10)["相関係数"].apply(lambda v: f"{v:+.2f}"),
+    )
+    fig_corr.update_layout(
+        height=max(200, 40 * len(corr_df.head(10))),
+        margin=dict(l=10, r=10, t=10, b=10),
+        yaxis=dict(categoryorder="total ascending"),
+    )
+    st.plotly_chart(
+        fig_corr, use_container_width=True,
+        config={"displayModeBar": False},
+    )
+    with st.expander("全項目の数値を見る"):
+        st.dataframe(corr_df, use_container_width=True)
 
 st.divider()
 
