@@ -471,21 +471,6 @@ elif len(df) < 14:
         f"（現在 {len(df)} 日）"
     )
 
-# --- 最近の「良かったこと」ハイライト ---
-if "recovery" in df.columns:
-    _cutoff_rec = pd.Timestamp.now().normalize() - pd.Timedelta(days=30)
-    _rec_df = df[
-        (df["log_date"] >= _cutoff_rec)
-        & (df["recovery"].fillna("").astype(str).str.len() > 0)
-    ][["log_date", "recovery"]]
-    if not _rec_df.empty:
-        st.subheader("✨ 最近の「良かったこと」")
-        st.caption("自分が書いた、自分に効いたこと。忘れた頃に読み返して。")
-        for _, row in _rec_df.sort_values("log_date", ascending=False).head(10).iterrows():
-            dt = row["log_date"].strftime("%m-%d")
-            st.markdown(f"- **{dt}** — {row['recovery']}")
-        st.divider()
-
 period = st.radio(
     "表示期間",
     ["直近7日", "直近30日", "直近90日", "全期間"],
@@ -579,29 +564,7 @@ except Exception:
     # 受動表示のため、失敗しても無視
     pass
 
-if len(view) >= 3:
-    st.subheader("📅 曜日別の気分")
-    dow_df = dow_stats(view)
-    fig_dow = go.Figure()
-    fig_dow.add_trace(go.Bar(
-        x=dow_df["曜日"].astype(str), y=dow_df["平均気分"],
-        error_y=dict(type="data", array=dow_df["標準偏差"]),
-        marker=dict(color=dow_df["平均気分"], colorscale="RdYlGn",
-                    cmin=1, cmax=10),
-        text=dow_df["記録数"].apply(lambda n: f"{n}件"),
-        textposition="outside",
-    ))
-    fig_dow.update_layout(
-        yaxis=dict(range=[0, 10.5], title="平均気分"),
-        height=320, margin=dict(l=10, r=10, t=10, b=10),
-        showlegend=False,
-    )
-    st.plotly_chart(fig_dow, use_container_width=True)
-    with st.expander("数値で見る"):
-        st.dataframe(dow_df, use_container_width=True)
-else:
-    st.caption("曜日別の分析は記録3件以上で表示されます。")
-
+# ----- メイン：いつもと違った日（推移と密接） -----
 if not anom.empty:
     with st.expander(f"🔴 いつもと違った日（{len(anom)}件）"):
         for _, row in anom.iterrows():
@@ -626,47 +589,119 @@ if not anom.empty:
                 st.write(row["note"])
             st.divider()
 
-# 気圧×気分の散布図（連続値での可視化。閾値判定の補完）
-if "pressure" in df.columns:
-    pm = df[df["pressure"].notna() & df["mood"].notna()][["pressure", "mood"]]
-    if len(pm) >= 5:
-        st.subheader("🌡 気圧 × 気分")
-        st.caption(
-            "横軸が気圧（hPa）、縦軸が気分（1-10）。"
-            "点がばらけていれば気圧の影響は弱く、右下/左上に偏ると影響が見えやすい。"
+# ===== 📂 自分の傾向を見る（折りたたみ） =====
+with st.expander("📂 自分の傾向を見る（曜日別・気分との相関）", expanded=False):
+    # 曜日別の気分
+    if len(view) >= 3:
+        st.markdown("**📅 曜日別の気分**")
+        dow_df = dow_stats(view)
+        fig_dow = go.Figure()
+        fig_dow.add_trace(go.Bar(
+            x=dow_df["曜日"].astype(str), y=dow_df["平均気分"],
+            error_y=dict(type="data", array=dow_df["標準偏差"]),
+            marker=dict(color=dow_df["平均気分"], colorscale="RdYlGn",
+                        cmin=1, cmax=10),
+            text=dow_df["記録数"].apply(lambda n: f"{n}件"),
+            textposition="outside",
+        ))
+        fig_dow.update_layout(
+            yaxis=dict(range=[0, 10.5], title="平均気分"),
+            height=320, margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
         )
-        import numpy as np
-        x = pm["pressure"].to_numpy()
-        y = pm["mood"].to_numpy()
-        # 相関係数（標本標準偏差0なら計算できないのでガード）
-        if x.std() > 0 and y.std() > 0:
-            corr = float(np.corrcoef(x, y)[0, 1])
-        else:
-            corr = 0.0
-        # 1次回帰のトレンドライン
+        st.plotly_chart(
+            fig_dow, use_container_width=True,
+            config={"displayModeBar": False},
+        )
+    else:
+        st.caption("曜日別の分析は記録3件以上で表示されます。")
+
+    # ----- 気分との相関プロット（generic、ユーザーが任意で特徴量を選べる） -----
+    st.markdown("**🔗 気分と一緒に見る指標**")
+    st.caption(
+        "気分と他の指標の関係を散布図で見ます。"
+        "デフォルトは相関が一番強そうなものを自動で選択。"
+        "下の選択肢で任意に切り替えられます。"
+    )
+
+    import numpy as np
+    _candidate_features = [
+        ("sleep_hours", "睡眠時間"),
+        ("energy", "エネルギー"),
+        ("pressure", "気圧"),
+        ("temperature", "気温"),
+        ("precipitation", "降水量"),
+    ]
+    # 各候補について相関係数を計算
+    _corr_results = []
+    for col, label in _candidate_features:
+        if col not in df.columns:
+            continue
+        sub = df[[col, "mood"]].dropna()
+        if len(sub) < 5:
+            continue
+        if sub[col].std() == 0 or sub["mood"].std() == 0:
+            continue
+        r = float(np.corrcoef(sub[col].to_numpy(), sub["mood"].to_numpy())[0, 1])
+        _corr_results.append({"col": col, "label": label, "r": r, "n": len(sub)})
+
+    if not _corr_results:
+        st.caption("相関プロットは指標が5件以上揃うと表示されます。")
+    else:
+        _corr_results.sort(key=lambda x: abs(x["r"]), reverse=True)
+        # ラベルとマップ
+        _options = [
+            f"{c['label']}（r = {c['r']:+.2f}, n={c['n']}）"
+            for c in _corr_results
+        ]
+        _label_to_col = {opt: c["col"] for opt, c in zip(_options, _corr_results)}
+        _label_to_meta = {opt: c for opt, c in zip(_options, _corr_results)}
+
+        _picked = st.selectbox(
+            "見たい指標", _options, index=0,
+            help="|r|が大きいほど気分との関係が強い目安",
+        )
+        _meta = _label_to_meta[_picked]
+        _col = _meta["col"]
+        _label = _meta["label"]
+        sub = df[[_col, "mood"]].dropna()
+        x = sub[_col].to_numpy()
+        y = sub["mood"].to_numpy()
         slope, intercept = np.polyfit(x, y, 1)
         x_line = np.linspace(x.min(), x.max(), 50)
         y_line = slope * x_line + intercept
 
-        fig_pm = px.scatter(
-            pm, x="pressure", y="mood",
-            labels={"pressure": "気圧 (hPa)", "mood": "気分"},
+        fig_corr = px.scatter(
+            sub, x=_col, y="mood",
+            labels={_col: _label, "mood": "気分"},
             opacity=0.6,
         )
-        fig_pm.add_scatter(
+        fig_corr.add_scatter(
             x=x_line, y=y_line, mode="lines",
             name="トレンド", line=dict(color="orange", dash="dash"),
         )
-        fig_pm.update_yaxes(range=[0, 10])
-        st.plotly_chart(fig_pm, use_container_width=True)
+        fig_corr.update_yaxes(range=[0, 10])
+        fig_corr.update_layout(
+            height=320, margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
+        )
+        st.plotly_chart(
+            fig_corr, use_container_width=True,
+            config={"displayModeBar": False},
+        )
         st.caption(
-            f"相関係数 r = {corr:+.2f}（n={len(pm)}）。"
+            f"相関係数 r = {_meta['r']:+.2f}（n={_meta['n']}）。"
             "|r|≥0.3で弱い相関、≥0.5でそこそこ、≥0.7で強い相関の目安。"
         )
-    else:
-        st.caption("気圧×気分の散布図は記録5件以上で表示されます。")
 
-st.subheader("🔮 「翌日の気分」との相関")
+st.divider()
+st.markdown("#### 📂 翌日への影響を見る（任意）")
+st.caption(
+    "「今日のXがどう翌日の気分に効いてそうか」を見るセクションです。"
+    "数字が気になる時だけスクロールしてください。"
+)
+
+st.markdown("##### 🔮 「翌日の気分」との相関")
 st.caption("どの指標が翌日の気分と関係しそうか。絶対値が大きいほど影響が強い傾向。")
 
 corr_df = correlations_with_next_mood(df)
@@ -689,7 +724,7 @@ else:
     with st.expander("全項目の数値を見る"):
         st.dataframe(corr_df, use_container_width=True)
 
-st.subheader("🤖 翌日の気分を予測してみる（実験）")
+st.markdown("##### 🤖 翌日の気分を予測してみる（実験）")
 result = train_mood_predictor(df, min_samples=14)
 
 if "importance" not in result:
@@ -822,6 +857,23 @@ else:
                 config={"displayModeBar": False},
             )
 
+st.divider()
+
+# ----- ✨ 最近の「良かったこと」（末尾に配置：振り返りの素材として）-----
+if "recovery" in df.columns:
+    _cutoff_rec = pd.Timestamp.now().normalize() - pd.Timedelta(days=30)
+    _rec_df = df[
+        (df["log_date"] >= _cutoff_rec)
+        & (df["recovery"].fillna("").astype(str).str.len() > 0)
+    ][["log_date", "recovery"]]
+    if not _rec_df.empty:
+        st.subheader("✨ 最近の「良かったこと」")
+        st.caption("自分が書いた、自分に効いたこと。忘れた頃に読み返して。")
+        for _, row in _rec_df.sort_values("log_date", ascending=False).head(10).iterrows():
+            dt = row["log_date"].strftime("%m-%d")
+            st.markdown(f"- **{dt}** — {row['recovery']}")
+
+# ----- 最近のメモ -----
 notes_df = view[view["note"].fillna("").str.len() > 0][
     ["log_date", "mood", "note"]
 ].sort_values("log_date", ascending=False)
