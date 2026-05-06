@@ -136,6 +136,17 @@ DERIVED_FEATURES = [
 ]
 ALL_FEATURES = BASE_FEATURES + DERIVED_FEATURES
 
+# 過学習対策：少サンプル時の予測モデル用コア特徴量（6個に絞る）
+# 2026-05-06: 15日でCV R² -4.50 の過学習が起きたため、特徴量を厳選
+CORE_FEATURES = [
+    "mood",         # 当日の気分
+    "sleep_hours",  # 睡眠時間
+    "energy",       # エネルギー
+    "pressure",     # 気圧
+    "wake_minutes", # 起床時刻
+    "mood_ma3",     # 直近3日の気分平均（前日気分の代替）
+]
+
 FEATURE_JP = {
     "mood": "当日の気分",
     "sleep_hours": "睡眠時間",
@@ -260,7 +271,8 @@ def train_mood_predictor(df: pd.DataFrame, min_samples: int = 14):
     from sklearn.model_selection import cross_val_score, cross_val_predict
 
     feat = build_feature_frame(df)
-    features = [f for f in ALL_FEATURES if f in feat.columns]
+    # 過学習対策：CORE_FEATURES（6個）に絞る
+    features = [f for f in CORE_FEATURES if f in feat.columns]
     train = feat.dropna(subset=["mood_next"] + features)
 
     if len(train) < min_samples:
@@ -331,4 +343,107 @@ def train_mood_predictor(df: pd.DataFrame, min_samples: int = 14):
         "cv_predictions": cv_predictions,
         "next_day": next_day,
         "features_used": [FEATURE_JP.get(f, f) for f in features],
+    }
+
+
+# =========================
+# 分類モデル：「明日は良くなる/同じ/下がる」（LogisticRegression）
+# =========================
+TREND_THRESHOLD = 1.0  # 翌日 mood の増減が ±1.0 以上で「良くなる/下がる」と判定
+
+
+def train_mood_classifier(df: pd.DataFrame, min_samples: int = 21):
+    """3クラス分類で翌日の気分の方向を予測。
+    クラス：「良くなる」「同じ」「下がる」（threshold=±1.0）
+
+    戻り値 dict（データ不足時は {"n_train": ..., "required": ...} ）:
+      - n_train: 学習に使えたサンプル数
+      - cv_accuracy: 交差検証の正解率（5分割平均）
+      - baseline_accuracy: 「常に多数派クラスを返す」場合の正解率（比較基準）
+      - next_day: 「明日の予測」 dict {"date", "predicted_class", "probabilities"}
+      - features_used: 使用した特徴量
+      - class_distribution: 学習データのクラス分布
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score
+
+    feat = build_feature_frame(df)
+    features = [f for f in CORE_FEATURES if f in feat.columns]
+    train = feat.dropna(subset=["mood_next", "mood"] + features).copy()
+
+    if len(train) < min_samples:
+        return {"n_train": len(train), "required": min_samples}
+
+    # 翌日の方向を3クラスに変換
+    def _direction(row):
+        diff = row["mood_next"] - row["mood"]
+        if diff >= TREND_THRESHOLD:
+            return "良くなる"
+        if diff <= -TREND_THRESHOLD:
+            return "下がる"
+        return "同じ"
+
+    train["direction"] = train.apply(_direction, axis=1)
+
+    # クラスが1種類しかない場合は予測できない
+    if train["direction"].nunique() < 2:
+        return {
+            "n_train": len(train),
+            "required": min_samples,
+            "insufficient_classes": True,
+            "class_distribution": train["direction"].value_counts().to_dict(),
+        }
+
+    X = train[features]
+    y = train["direction"]
+
+    # 標準化（LogisticRegressionは標準化推奨）
+    X_std = (X - X.mean()) / X.std(ddof=0).replace(0, 1)
+
+    try:
+        clf = LogisticRegression(
+            max_iter=1000, multi_class="multinomial", random_state=42,
+        ).fit(X_std, y)
+    except Exception:
+        return {"n_train": len(train), "required": min_samples, "training_failed": True}
+
+    # 交差検証（多数派ベースラインと比較）
+    cv_n = min(5, max(2, len(train) // 5))
+    try:
+        cv_acc = cross_val_score(
+            LogisticRegression(max_iter=1000, multi_class="multinomial", random_state=42),
+            X_std, y, cv=cv_n, scoring="accuracy",
+        ).mean()
+    except Exception:
+        cv_acc = None
+    baseline_acc = float(y.value_counts(normalize=True).max())
+
+    # 「明日の予測」
+    feat_ready = feat.dropna(subset=features)
+    next_day = None
+    if len(feat_ready) > 0:
+        last = feat_ready.iloc[-1]
+        # 標準化（学習時と同じ統計量で）
+        last_std = (last[features] - X.mean()) / X.std(ddof=0).replace(0, 1)
+        try:
+            pred_class = clf.predict([last_std.values])[0]
+            probs = clf.predict_proba([last_std.values])[0]
+            class_probs = dict(zip(clf.classes_, [round(float(p), 3) for p in probs]))
+            next_day = {
+                "date": (pd.to_datetime(last["log_date"]) + pd.Timedelta(days=1)).date(),
+                "based_on_date": pd.to_datetime(last["log_date"]).date(),
+                "predicted_class": str(pred_class),
+                "probabilities": class_probs,
+                "confidence": round(float(max(probs)), 3),
+            }
+        except Exception:
+            next_day = None
+
+    return {
+        "n_train": len(train),
+        "cv_accuracy": round(cv_acc, 3) if cv_acc is not None else None,
+        "baseline_accuracy": round(baseline_acc, 3),
+        "next_day": next_day,
+        "features_used": [FEATURE_JP.get(f, f) for f in features],
+        "class_distribution": train["direction"].value_counts().to_dict(),
     }

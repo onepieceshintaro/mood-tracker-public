@@ -19,7 +19,7 @@ from weather import (
 )
 from analysis import (
     dow_stats, correlations_with_next_mood, train_mood_predictor, DOW_ORDER,
-    streak_days, daily_observations,
+    streak_days, daily_observations, train_mood_classifier,
 )
 from _user import render_account_sidebar, get_or_create_user_id
 from db import get_engine, init_db
@@ -823,6 +823,8 @@ st.caption(
 st.markdown("##### 🤖 明日の気分予測")
 # 最低21日必要（過学習を避けるため、14日→21日に引き上げ）
 result = train_mood_predictor(df, min_samples=21)
+# 分類モデル（同じ最低21日）：「良くなる/同じ/下がる」の3クラス予測
+clf_result = train_mood_classifier(df, min_samples=21)
 
 if "importance" not in result:
     st.info(
@@ -858,15 +860,39 @@ else:
     nd = result.get("next_day")
     if nd:
         if _is_overfitted:
-            # 予測値そのものは出さない（信頼できない数字を見せない）
+            # 数値予測は出さない（信頼できない数字を見せない）
             st.warning(
-                "🤖 **予測モデルが安定していないため、明日の予測値は表示しません**"
+                "🤖 **数値予測は安定していないため、表示しません**"
             )
             st.caption(
                 f"{_overfit_reason}　"
-                "記録を続けて学習データが増えると、安定した予測が出せるようになります。"
-                "今は「**学習中**」として、寄与度や CV予測グラフだけご覧ください。"
+                "記録を続けて学習データが増えると、安定した数値予測が出せるようになります。"
             )
+
+            # ----- 代わりに分類予測を試みる（こちらは安定しやすい） -----
+            _clf_nd = clf_result.get("next_day") if isinstance(clf_result, dict) else None
+            _cv_acc = clf_result.get("cv_accuracy") if isinstance(clf_result, dict) else None
+            _baseline_acc = clf_result.get("baseline_accuracy") if isinstance(clf_result, dict) else None
+            if _clf_nd and _cv_acc is not None and _baseline_acc is not None:
+                # 多数派ベースラインを上回っている場合のみ表示
+                if _cv_acc > _baseline_acc + 0.05:
+                    _direction = _clf_nd["predicted_class"]
+                    _conf = _clf_nd["confidence"]
+                    _emoji = {"良くなる": "📈", "同じ": "➡️", "下がる": "📉"}.get(_direction, "")
+                    st.info(
+                        f"💡 **代わりに：傾向予測** {_emoji} 明日は今日より「**{_direction}**」と"
+                        f"見ています（信頼度：{_conf*100:.0f}%）"
+                    )
+                    st.caption(
+                        f"分類モデル（3クラス）の予測。CV正解率 {_cv_acc*100:.0f}% > "
+                        f"単純なベースライン {_baseline_acc*100:.0f}% を上回っているため表示。"
+                        "「明日は良くなる/同じ/下がる」だけならこちらの方が当たりやすい時期です。"
+                    )
+                else:
+                    st.caption(
+                        f"💡 傾向予測（良くなる/同じ/下がる）も試しましたが、"
+                        f"単純な多数派予測（{_baseline_acc*100:.0f}%）と同等で、まだ信頼できる差がありません。"
+                    )
         else:
             c_nd1, c_nd2 = st.columns([1, 2])
             with c_nd1:
