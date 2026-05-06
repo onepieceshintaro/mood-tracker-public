@@ -587,11 +587,10 @@ if _obs or _insights:
         "あなた自身の記録から出た事実です（一般論ではなく）。"
         "解釈は本人にお任せします。"
     )
-    for s in _obs:
+    # 全体で最大5行に絞る（多すぎると焦点がぼけるため）
+    _combined = (_obs or []) + (_insights or [])
+    for s in _combined[:5]:
         st.markdown(f"- {s}")
-    if _insights:
-        for s in _insights:
-            st.markdown(f"- {s}")
     st.divider()
 else:
     # データが極端に少ない時のメッセージ

@@ -70,28 +70,17 @@ def daily_observations(df: pd.DataFrame) -> list[str]:
                 f"📊 直近7日の気分平均は **{m_recent:.1f}**、ほぼ前週と変わりません。"
             )
 
-    # 3) 直近7日の睡眠（時間がある日のみ）
+    # 3) 直近7日の睡眠（5日以上で出す＝実害が見えるレベル）
     if "sleep_hours" in df.columns:
         sh_recent = recent7["sleep_hours"].dropna()
-        if len(sh_recent) >= 3:
+        if len(sh_recent) >= 5:
             short_days = int((sh_recent < 6).sum())
-            if short_days >= 3:
+            if short_days >= 5:
                 out.append(
                     f"😴 直近7日のうち **{short_days}日** で睡眠が6時間未満でした。"
                 )
 
-    # 4) 気圧の急変
-    if "pressure" in df.columns and len(recent7) >= 3:
-        pres = recent7["pressure"].dropna()
-        if len(pres) >= 3:
-            pres_diff = pres.diff().dropna()
-            big_drops = int((pres_diff < -8).sum())
-            if big_drops >= 1:
-                out.append(
-                    f"🌡 直近7日で気圧が急に下がった日が **{big_drops}日** ありました。"
-                )
-
-    # 5) 出来事タグの頻度（直近30日）
+    # 4) 出来事タグの頻度（直近30日）
     cutoff_30 = today - pd.Timedelta(days=30)
     last30 = df[df["log_date"] >= cutoff_30]
     if "tags" in last30.columns and len(last30) >= 7:
@@ -104,19 +93,28 @@ def daily_observations(df: pd.DataFrame) -> list[str]:
                     tag_counter[t] += 1
         if tag_counter:
             top1, c1 = tag_counter.most_common(1)[0]
-            out.append(
-                f"🏷 直近30日でいちばん多かった出来事タグは **「{top1}」**（{c1}日分）。"
-            )
+            # 「仕事」が圧倒的に多いのは当たり前なので、極端な偏りの時のみ意味がある
+            if c1 >= max(7, len(last30) * 0.5):
+                out.append(
+                    f"🏷 直近30日でいちばん多かった出来事タグは **「{top1}」**（{c1}日分）。"
+                )
 
-    # 6) 「良かったこと」を書いた日数
-    if "recovery" in last30.columns:
-        rec_count = int(
-            last30["recovery"].fillna("").astype(str).str.len().gt(0).sum()
-        )
-        if rec_count >= 3:
-            out.append(
-                f"✨ 直近30日で **{rec_count}日**、「良かったこと」を書きました。"
+    # 5) 気圧と気分の重なり（単発の気圧低下ではなく、気分との関連が見える時のみ）
+    if "pressure" in recent7.columns and "mood" in recent7.columns:
+        sub = recent7[["pressure", "mood"]].dropna()
+        if len(sub) >= 5:
+            pres_diff = sub["pressure"].diff()
+            # 気圧が下がった日（前日比 -5hPa以上）で、気分が平均より低かった日のカウント
+            mean_mood_recent = sub["mood"].mean()
+            low_pres_low_mood = int(
+                ((pres_diff < -5) & (sub["mood"] < mean_mood_recent)).sum()
             )
+            # 2日以上重なった時だけ表示（単発はノイズ）
+            if low_pres_low_mood >= 2:
+                out.append(
+                    f"🌡 直近7日で **気圧が下がった日と気分が下がった日が "
+                    f"{low_pres_low_mood}日重なっていました**。"
+                )
 
     return out
 
