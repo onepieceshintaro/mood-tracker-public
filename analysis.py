@@ -80,26 +80,7 @@ def daily_observations(df: pd.DataFrame) -> list[str]:
                     f"😴 直近7日のうち **{short_days}日** で睡眠が6時間未満でした。"
                 )
 
-    # 4) 出来事タグの頻度（直近30日）
-    cutoff_30 = today - pd.Timedelta(days=30)
-    last30 = df[df["log_date"] >= cutoff_30]
-    if "tags" in last30.columns and len(last30) >= 7:
-        from collections import Counter
-        tag_counter: Counter = Counter()
-        for s in last30["tags"].dropna():
-            for t in str(s).split(","):
-                t = t.strip()
-                if t:
-                    tag_counter[t] += 1
-        if tag_counter:
-            top1, c1 = tag_counter.most_common(1)[0]
-            # 「仕事」が圧倒的に多いのは当たり前なので、極端な偏りの時のみ意味がある
-            if c1 >= max(7, len(last30) * 0.5):
-                out.append(
-                    f"🏷 直近30日でいちばん多かった出来事タグは **「{top1}」**（{c1}日分）。"
-                )
-
-    # 5) 気圧と気分の重なり（単発の気圧低下ではなく、気分との関連が見える時のみ）
+    # 4) 気圧と気分の重なり（単発の気圧低下ではなく、気分との関連が見える時のみ）
     if "pressure" in recent7.columns and "mood" in recent7.columns:
         sub = recent7[["pressure", "mood"]].dropna()
         if len(sub) >= 5:
