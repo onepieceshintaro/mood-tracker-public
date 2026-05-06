@@ -628,39 +628,30 @@ else:
     std_mood = df["mood"].std(ddof=0) if len(df) > 1 else 0
     baseline_source = f"全期間（{len(df)}件・データ蓄積中）"
 
-lower, upper = mean_mood - 2 * std_mood, mean_mood + 2 * std_mood
-view["anomaly"] = (view["mood"] < lower) | (view["mood"] > upper)
 view["mood_ma7"] = view["mood"].rolling(7, min_periods=1).mean()
 
 st.caption(
-    f"📊 いつもの範囲は **{baseline_source}** の平均 ± 2σ から算出しています。"
-    "表示期間を変えてもベースラインは固定です。"
+    f"📊 平均線は **{baseline_source}** の気分平均から算出しています。"
 )
 
 fig = go.Figure()
-fig.add_hrect(y0=lower, y1=upper,
-              fillcolor="rgba(100,180,255,0.08)", line_width=0,
-              annotation_text="いつもの範囲 (±2σ)",
-              annotation_position="top left")
-fig.add_hline(y=mean_mood, line_dash="dot", line_color="#888",
-              annotation_text=f"平均 {mean_mood:.1f}",
-              annotation_position="right")
+fig.add_hline(
+    y=mean_mood, line_dash="dot", line_color="#888",
+    annotation_text=f"平均 {mean_mood:.1f}",
+    annotation_position="right",
+)
 
-normal = view[~view["anomaly"]]
-fig.add_trace(go.Scatter(x=normal["log_date"], y=normal["mood"],
+fig.add_trace(go.Scatter(
+    x=view["log_date"], y=view["mood"],
     mode="lines+markers", name="気分",
-    line=dict(color="#4a90e2"), marker=dict(size=11)))
+    line=dict(color="#4a90e2"), marker=dict(size=11),
+))
 
-anom = view[view["anomaly"]]
-if not anom.empty:
-    fig.add_trace(go.Scatter(x=anom["log_date"], y=anom["mood"],
-        mode="markers", name="いつもと違う日",
-        marker=dict(color="#e74c3c", size=16,
-                    symbol="circle-open", line=dict(width=3))))
-
-fig.add_trace(go.Scatter(x=view["log_date"], y=view["mood_ma7"],
+fig.add_trace(go.Scatter(
+    x=view["log_date"], y=view["mood_ma7"],
     mode="lines", name="7日移動平均",
-    line=dict(color="#f39c12", width=2, dash="dash")))
+    line=dict(color="#f39c12", width=2, dash="dash"),
+))
 
 fig.update_layout(
     yaxis=dict(range=[0.5, 10.5], title="気分"),
@@ -691,30 +682,6 @@ except Exception:
     # 受動表示のため、失敗しても無視
     pass
 
-# ----- メイン：いつもと違った日（推移と密接） -----
-if not anom.empty:
-    with st.expander(f"🔴 いつもと違った日（{len(anom)}件）"):
-        for _, row in anom.iterrows():
-            dt = row["log_date"].strftime("%Y-%m-%d")
-            w_emoji, w_label = describe_weather(row.get("weather_code"))
-            extras = []
-            if pd.notna(row.get("temperature")):
-                extras.append(f"{row['temperature']:.1f}°C")
-            if pd.notna(row.get("pressure")):
-                extras.append(f"{row['pressure']:.0f}hPa")
-            extras_str = " / ".join(extras)
-            st.markdown(
-                f"**{dt}** ｜ 気分 {row['mood']}／睡眠 {row['sleep_hours']}h "
-                f"｜ {w_emoji}{w_label} {extras_str}"
-            )
-            if row["tags"]:
-                _formatted_tags = " / ".join(
-                    _format_tag(t) for t in _parse_tag_string(row["tags"])
-                ) or row["tags"]
-                st.caption(f"出来事: {_formatted_tags}")
-            if row["note"]:
-                st.write(row["note"])
-            st.divider()
 
 # ===== 📂 自分の傾向を見る（折りたたみ） =====
 with st.expander("📂 自分の傾向", expanded=False):
