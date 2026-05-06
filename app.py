@@ -534,7 +534,7 @@ with st.form("mood_form"):
             _obs = daily_observations(_df_for_insight)
             if _obs:
                 with st.container(border=True):
-                    st.markdown("**🪞 最近のあなた（観察）**")
+                    st.markdown("**🪞 最近のあなた**")
                     for _msg in _obs[:5]:
                         st.markdown(f"- {_msg}")
                     st.caption(
@@ -566,18 +566,28 @@ if df.empty:
 df["log_date"] = pd.to_datetime(df["log_date"])
 df = df.sort_values("log_date").reset_index(drop=True)
 
-# --- あなたの傾向（本人データからの事実） ---
-_insights = build_insights(df)
-if _insights:
-    st.subheader("📊 あなたの傾向")
-    st.caption("あなた自身の記録から出た事実です（一般論ではなく）")
-    for s in _insights:
-        st.markdown(f"- {s}")
-    st.divider()
-elif len(df) < 14:
+# ===== 🪞 最近のあなた（観察ベースのメイン）=====
+# 直近の事実観察（少サンプルでも返る）
+_obs = daily_observations(df)
+# データ十分な時のみのパターン発見（曜日・気圧など）
+_insights = build_insights(df) if len(df) >= 14 else []
+
+if _obs or _insights:
+    st.subheader("🪞 最近のあなた")
     st.caption(
-        f"📊 「あなたの傾向」は記録が14日分以上溜まると表示されます "
-        f"（現在 {len(df)} 日）"
+        "あなた自身の記録から出た事実です（一般論ではなく）。"
+        "解釈は本人にお任せします。"
+    )
+    for s in _obs:
+        st.markdown(f"- {s}")
+    if _insights:
+        for s in _insights:
+            st.markdown(f"- {s}")
+    st.divider()
+else:
+    # データが極端に少ない時のメッセージ
+    st.caption(
+        f"🌱 記録 **{len(df)}日目**。続けるほど、ここに「最近のあなた」の事実が増えていきます。"
     )
 
 period = st.radio(
