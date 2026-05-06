@@ -702,44 +702,77 @@ st.caption(
 )
 
 st.markdown("##### 🤖 明日の気分予測")
-result = train_mood_predictor(df, min_samples=14)
+# 最低21日必要（過学習を避けるため、14日→21日に引き上げ）
+result = train_mood_predictor(df, min_samples=21)
 
 if "importance" not in result:
     st.info(
-        f"学習には連続した記録が{result['required']}日以上必要です。"
-        f"現在使える日数：**{result['n_train']}日**"
+        f"予測モデルの学習には記録が **{result['required']}日以上** 必要です。"
+        f"現在使える日数：**{result['n_train']}日**（あと {max(0, result['required'] - result['n_train'])}日）"
     )
-    st.caption("記録を続けていくと、ここに予測モデルと特徴量の寄与度が表示されます。")
+    st.caption(
+        "短い学習データだと、モデルが偶然のパターンを覚えてしまい（過学習）、"
+        "予測値が信頼できません。21日分溜まると、ここに予測値と寄与度が表示されます。"
+    )
 else:
     imp = result["importance"]
+    _cv_r2 = result.get("cv_r2")
+    _train_r2 = result.get("train_r2")
 
-    # ----- 明日の気分予測（事前に分かる、actionable） -----
+    # ----- 過学習判定：訓練R²とCV R²の乖離が大きい / CV R²が負 -----
+    _is_overfitted = False
+    _overfit_reason = ""
+    if _cv_r2 is not None and _cv_r2 < 0:
+        _is_overfitted = True
+        _overfit_reason = (
+            f"交差検証 R² が **{_cv_r2:.2f}**（マイナス）。"
+            "これは「平均値で予測するより悪い」状態です。"
+        )
+    elif _cv_r2 is not None and _train_r2 is not None and (_train_r2 - _cv_r2) > 0.5:
+        _is_overfitted = True
+        _overfit_reason = (
+            f"訓練 R² {_train_r2:.2f} と 交差検証 R² {_cv_r2:.2f} の差が大きく、"
+            "学習データに過剰適合している可能性があります。"
+        )
+
+    # ----- 明日の気分予測（過学習時は数値を非表示） -----
     nd = result.get("next_day")
     if nd:
-        c_nd1, c_nd2 = st.columns([1, 2])
-        with c_nd1:
-            st.metric(
-                f"{nd['date'].strftime('%-m/%-d') if hasattr(nd['date'], 'strftime') else nd['date']} の予測",
-                f"{nd['predicted_mood']:.1f}",
-                help="1〜10。今日までの特徴量（睡眠・気圧・気分平均など）から線形回帰で計算",
+        if _is_overfitted:
+            # 予測値そのものは出さない（信頼できない数字を見せない）
+            st.warning(
+                "🤖 **予測モデルが安定していないため、明日の予測値は表示しません**"
             )
-        with c_nd2:
-            base = nd["based_on_date"]
-            base_str = base.strftime("%-m/%-d") if hasattr(base, "strftime") else str(base)
             st.caption(
-                f"📌 **{base_str}** までの記録をもとに、線形回帰モデルで予測した値です。"
-                "あくまで参考値で、当てるためのものではなく**自分の調子を予測する素材**として使ってください。"
+                f"{_overfit_reason}　"
+                "記録を続けて学習データが増えると、安定した予測が出せるようになります。"
+                "今は「**学習中**」として、寄与度や CV予測グラフだけご覧ください。"
             )
-            if nd.get("clamped"):
-                st.caption(
-                    f"⚠️ 計算上の生の値は {nd['raw_prediction']:.2f} でしたが、"
-                    "1〜10 の範囲に丸めて表示しています。"
+        else:
+            c_nd1, c_nd2 = st.columns([1, 2])
+            with c_nd1:
+                st.metric(
+                    f"{nd['date'].strftime('%-m/%-d') if hasattr(nd['date'], 'strftime') else nd['date']} の予測",
+                    f"{nd['predicted_mood']:.1f}",
+                    help="1〜10。今日までの特徴量（睡眠・気圧・気分平均など）から線形回帰で計算",
                 )
-            if result.get("cv_r2") is not None and result["cv_r2"] < 0.2:
+            with c_nd2:
+                base = nd["based_on_date"]
+                base_str = base.strftime("%-m/%-d") if hasattr(base, "strftime") else str(base)
                 st.caption(
-                    "⚠️ 交差検証 R² が低めです。**この予測は当てにならない時期**かもしれません。"
-                    "記録を続けると精度が上がります。"
+                    f"📌 **{base_str}** までの記録をもとに、線形回帰モデルで予測した値です。"
+                    "あくまで参考値で、当てるためのものではなく**自分の調子を予測する素材**として使ってください。"
                 )
+                if nd.get("clamped"):
+                    st.caption(
+                        f"⚠️ 計算上の生の値は {nd['raw_prediction']:.2f} でしたが、"
+                        "1〜10 の範囲に丸めて表示しています。"
+                    )
+                if _cv_r2 is not None and 0 <= _cv_r2 < 0.2:
+                    st.caption(
+                        "⚠️ 交差検証 R² が低めです。**この予測は当てにならない時期**かもしれません。"
+                        "記録を続けると精度が上がります。"
+                    )
 
         # ----- 予測値の根拠（寄与度の上位3つを文章化） -----
         if imp is not None and not imp.empty:
