@@ -1,6 +1,124 @@
-"""気分データの分析：曜日別分析、翌日の気分との相関、予測モデル"""
+"""気分データの分析：曜日別分析、翌日の気分との相関、予測モデル、観察ベースの気づき"""
 import pandas as pd
 import numpy as np
+
+
+# =========================
+# 観察ベースの気づき（事実のみ・解釈しない）
+# =========================
+def streak_days(df: pd.DataFrame) -> int:
+    """今日まで何日連続で記録できているか（連続日数）。"""
+    if df is None or df.empty:
+        return 0
+    today = pd.Timestamp.now().normalize()
+    dates = pd.to_datetime(df["log_date"]).dt.normalize().sort_values().unique()
+    if len(dates) == 0:
+        return 0
+    streak = 0
+    expected = today
+    for d in reversed(dates):
+        if d == expected or d == expected - pd.Timedelta(days=1):
+            streak += 1
+            expected = d - pd.Timedelta(days=1)
+        else:
+            break
+    return streak
+
+
+def daily_observations(df: pd.DataFrame) -> list[str]:
+    """蓄積データから「事実」だけを返す。解釈や予測はしない。
+
+    返すパターン例:
+    - 連続記録日数
+    - 直近7日の平均と前7日の比較
+    - 直近の睡眠の傾向（短い日が続いているか等）
+    - 直近の天気・気圧の特徴
+    - 出来事タグの頻度
+    """
+    if df is None or df.empty:
+        return []
+    out: list[str] = []
+    df = df.copy()
+    df["log_date"] = pd.to_datetime(df["log_date"]).dt.normalize()
+    df = df.sort_values("log_date").reset_index(drop=True)
+    today = pd.Timestamp.now().normalize()
+
+    # 1) 連続記録日数
+    s = streak_days(df)
+    if s >= 2:
+        out.append(f"🌱 **{s}日連続**で記録できています。")
+    elif s == 1:
+        out.append("🌱 今日も記録できました。記録1日目から始まります。")
+
+    # 2) 直近7日 vs その前7日 の気分平均
+    cutoff_recent = today - pd.Timedelta(days=7)
+    cutoff_prev = today - pd.Timedelta(days=14)
+    recent7 = df[df["log_date"] > cutoff_recent]
+    prev7 = df[(df["log_date"] <= cutoff_recent) & (df["log_date"] > cutoff_prev)]
+    if len(recent7) >= 3 and len(prev7) >= 3:
+        m_recent = recent7["mood"].mean()
+        m_prev = prev7["mood"].mean()
+        diff = m_recent - m_prev
+        if abs(diff) >= 0.5:
+            direction = "上がっています" if diff > 0 else "下がっています"
+            out.append(
+                f"📊 直近7日の気分平均は **{m_recent:.1f}**、"
+                f"その前7日（{m_prev:.1f}）より **{abs(diff):.1f} {direction}**。"
+            )
+        elif len(recent7) >= 5:
+            out.append(
+                f"📊 直近7日の気分平均は **{m_recent:.1f}**、ほぼ前週と変わりません。"
+            )
+
+    # 3) 直近7日の睡眠（時間がある日のみ）
+    if "sleep_hours" in df.columns:
+        sh_recent = recent7["sleep_hours"].dropna()
+        if len(sh_recent) >= 3:
+            short_days = int((sh_recent < 6).sum())
+            if short_days >= 3:
+                out.append(
+                    f"😴 直近7日のうち **{short_days}日** で睡眠が6時間未満でした。"
+                )
+
+    # 4) 気圧の急変
+    if "pressure" in df.columns and len(recent7) >= 3:
+        pres = recent7["pressure"].dropna()
+        if len(pres) >= 3:
+            pres_diff = pres.diff().dropna()
+            big_drops = int((pres_diff < -8).sum())
+            if big_drops >= 1:
+                out.append(
+                    f"🌡 直近7日で気圧が急に下がった日が **{big_drops}日** ありました。"
+                )
+
+    # 5) 出来事タグの頻度（直近30日）
+    cutoff_30 = today - pd.Timedelta(days=30)
+    last30 = df[df["log_date"] >= cutoff_30]
+    if "tags" in last30.columns and len(last30) >= 7:
+        from collections import Counter
+        tag_counter: Counter = Counter()
+        for s in last30["tags"].dropna():
+            for t in str(s).split(","):
+                t = t.strip()
+                if t:
+                    tag_counter[t] += 1
+        if tag_counter:
+            top1, c1 = tag_counter.most_common(1)[0]
+            out.append(
+                f"🏷 直近30日でいちばん多かった出来事タグは **「{top1}」**（{c1}日分）。"
+            )
+
+    # 6) 「良かったこと」を書いた日数
+    if "recovery" in last30.columns:
+        rec_count = int(
+            last30["recovery"].fillna("").astype(str).str.len().gt(0).sum()
+        )
+        if rec_count >= 3:
+            out.append(
+                f"✨ 直近30日で **{rec_count}日**、「良かったこと」を書きました。"
+            )
+
+    return out
 
 JP_DOW = {0: "月", 1: "火", 2: "水", 3: "木", 4: "金", 5: "土", 6: "日"}
 DOW_ORDER = ["月", "火", "水", "木", "金", "土", "日"]

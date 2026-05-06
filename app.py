@@ -19,6 +19,7 @@ from weather import (
 )
 from analysis import (
     dow_stats, correlations_with_next_mood, train_mood_predictor, DOW_ORDER,
+    streak_days, daily_observations,
 )
 from _user import render_account_sidebar, get_or_create_user_id
 from db import get_engine, init_db
@@ -151,18 +152,23 @@ def build_insights(df: pd.DataFrame) -> list[str]:
 
 # -------------- DB 操作 --------------
 def upsert(log_date, mood, sleep_hours, energy, note, tags, weather, wake_time,
-           recovery="", user_id=None):
+           recovery="", sleep_quality=None, events=None, user_id=None):
     if user_id is None:
         user_id = get_or_create_user_id()
     w = weather or {}
     wake_str = wake_time.strftime("%H:%M") if wake_time else None
+    # events は list[str] or None で受け、JSON文字列に変換
+    import json as _json
+    events_str = _json.dumps(events, ensure_ascii=False) if events else None
     sql = text("""
         INSERT INTO mood_logs
         (user_id, log_date, mood, sleep_hours, energy, note, tags, recovery,
-         temperature, weather_code, precipitation, pressure, wake_time)
+         temperature, weather_code, precipitation, pressure, wake_time,
+         sleep_quality, events)
         VALUES
         (:user_id, :log_date, :mood, :sleep_hours, :energy, :note, :tags, :recovery,
-         :temperature, :weather_code, :precipitation, :pressure, :wake_time)
+         :temperature, :weather_code, :precipitation, :pressure, :wake_time,
+         :sleep_quality, :events)
         ON CONFLICT (user_id, log_date) DO UPDATE SET
             mood = EXCLUDED.mood,
             sleep_hours = EXCLUDED.sleep_hours,
@@ -174,7 +180,9 @@ def upsert(log_date, mood, sleep_hours, energy, note, tags, weather, wake_time,
             weather_code = EXCLUDED.weather_code,
             precipitation = EXCLUDED.precipitation,
             pressure = EXCLUDED.pressure,
-            wake_time = EXCLUDED.wake_time
+            wake_time = EXCLUDED.wake_time,
+            sleep_quality = EXCLUDED.sleep_quality,
+            events = EXCLUDED.events
     """)
     with get_engine().begin() as conn:
         conn.execute(sql, {
@@ -191,6 +199,8 @@ def upsert(log_date, mood, sleep_hours, energy, note, tags, weather, wake_time,
             "precipitation": w.get("precipitation"),
             "pressure": w.get("pressure"),
             "wake_time": wake_str,
+            "sleep_quality": sleep_quality,
+            "events": events_str,
         })
 
 
@@ -199,7 +209,8 @@ def load_existing(log_date, user_id=None):
         user_id = get_or_create_user_id()
     sql = text("""
         SELECT mood, sleep_hours, energy, note, tags, recovery,
-               temperature, weather_code, precipitation, pressure, wake_time
+               temperature, weather_code, precipitation, pressure, wake_time,
+               sleep_quality, events
         FROM mood_logs WHERE user_id = :user_id AND log_date = :log_date
     """)
     with get_engine().connect() as conn:
@@ -329,6 +340,18 @@ lon = st.session_state["location"]["lon"]
 st.markdown("### 📝 今日の気分")
 st.caption("30秒で書ける、浅くて続けられる記録。")
 
+# --- 連続記録ゲージ（入力上部・モチベーション維持用） ---
+try:
+    _all_for_streak = load_all()
+    _streak = streak_days(_all_for_streak)
+    _total_days = len(_all_for_streak) if _all_for_streak is not None else 0
+    if _streak >= 1:
+        st.caption(
+            f"🌱 **{_streak}日連続** で記録中　／　累計 **{_total_days}日**"
+        )
+except Exception:
+    pass
+
 # --- 日付と天気（フォームの外で、変更即時反映） ---
 log_date = st.date_input("日付", value=date.today(), max_value=date.today())
 
@@ -362,12 +385,24 @@ existing = load_existing(log_date)
 if existing:
     st.caption(f"📌 {log_date} は既に記録があります。上書きもできます。")
     (init_mood, init_sleep, init_energy, init_note, init_tags, init_recovery,
-     _t, _wc, _p, _pr, init_wake_str) = existing
+     _t, _wc, _p, _pr, init_wake_str,
+     init_sleep_quality, init_events_str) = existing
 else:
     init_mood, init_sleep, init_energy, init_note, init_tags, init_recovery = (
-        5, 7.0, 5, "", "", ""
+        5, None, 5, "", "", ""
     )
     init_wake_str = None
+    init_sleep_quality = None
+    init_events_str = None
+
+# 既存 events を list に
+import json as _json_for_form
+try:
+    init_events_list = _json_for_form.loads(init_events_str) if init_events_str else []
+    if not isinstance(init_events_list, list):
+        init_events_list = []
+except Exception:
+    init_events_list = []
 
 if init_wake_str:
     try:
@@ -377,6 +412,22 @@ if init_wake_str:
         init_wake = latest_wake_time() or time(7, 0)
 else:
     init_wake = latest_wake_time() or time(7, 0)
+
+# イベント変数9項目（カテゴリ別）
+EVENT_OPTIONS_BY_CATEGORY = {
+    "身体": [
+        "食事抜きあり", "夜間目覚めた", "運動した", "よく休めた",
+    ],
+    "家族・人間関係": [
+        "子供の夜泣き・体調不良", "人間関係でモヤッと",
+    ],
+    "仕事": [
+        "出社あり", "残業した",
+    ],
+    "その他": [
+        "飲酒あり",
+    ],
+}
 
 with st.form("mood_form"):
     # --- 基本（必須・常に表示） ---
@@ -390,21 +441,57 @@ with st.form("mood_form"):
             "エネルギー（1=枯渇 〜 10=元気いっぱい）", 1, 10, init_energy or 5
         )
 
-    col3, col4 = st.columns(2)
-    with col3:
-        sleep_hours = st.number_input(
-            "睡眠時間（h）", 0.0, 14.0, float(init_sleep or 7.0), 0.5
+    # --- 睡眠：3択を主、時間入力は任意 ---
+    SLEEP_QUALITY_OPTIONS = ["良い", "普通", "悪い"]
+    _sq_index = (
+        SLEEP_QUALITY_OPTIONS.index(init_sleep_quality)
+        if init_sleep_quality in SLEEP_QUALITY_OPTIONS else 1
+    )
+    sleep_quality = st.radio(
+        "睡眠どうだった？",
+        SLEEP_QUALITY_OPTIONS,
+        index=_sq_index,
+        horizontal=True,
+    )
+
+    # --- イベント変数（任意・デフォルト開）---
+    events_selected: list[str] = []
+    with st.expander("📝 今日のチェック", expanded=True):
+        st.caption(
+            "今日あったことに当てはまるものをチェック。"
+            "**チェックなし＝何もなかった日**として、これも記録の一部です。"
         )
-    with col4:
-        wake_time = st.time_input(
-            "起床時刻", value=init_wake, step=300,
-            help="いつもより遅く/早く起きた日がないか見るために使います",
-        )
+        for cat_name, opts in EVENT_OPTIONS_BY_CATEGORY.items():
+            st.markdown(f"**{cat_name}**")
+            cols = st.columns(min(len(opts), 2))
+            for i, opt in enumerate(opts):
+                with cols[i % len(cols)]:
+                    if st.checkbox(
+                        opt,
+                        value=(opt in init_events_list),
+                        key=f"ev_{opt}",
+                    ):
+                        events_selected.append(opt)
 
     # --- 任意（折りたたみ・書きたい日だけ） ---
     _init_tag_list = [t for t in _parse_tag_string(init_tags or "") if t in TAG_OPTIONS]
     _has_optional = bool(_init_tag_list or init_recovery or init_note)
     with st.expander("もう少し書く", expanded=_has_optional):
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            sleep_hours = st.number_input(
+                "睡眠時間（h・任意）",
+                0.0, 14.0,
+                float(init_sleep) if init_sleep is not None else 7.0,
+                0.5,
+                help="数値もあると分析が深くなります。覚えていない日はそのままでOK",
+            )
+        with col_s2:
+            wake_time = st.time_input(
+                "起床時刻（任意）", value=init_wake, step=300,
+                help="いつもより遅く/早く起きた日を見る用",
+            )
+
         tags_selected = st.multiselect(
             "出来事（複数選択可）",
             TAG_OPTIONS,
@@ -431,9 +518,31 @@ with st.form("mood_form"):
     submitted = st.form_submit_button("記録する", use_container_width=True)
     if submitted:
         tags_to_save = ",".join(tags_selected)
-        upsert(log_date, mood, sleep_hours, energy, note, tags_to_save,
-               weather, wake_time, recovery=recovery)
+        upsert(
+            log_date, mood, sleep_hours, energy, note, tags_to_save,
+            weather, wake_time,
+            recovery=recovery,
+            sleep_quality=sleep_quality,
+            events=events_selected,
+        )
         st.success(f"{log_date} の記録を保存しました")
+        st.session_state["_just_saved_date"] = str(log_date)
+
+        # --- デイリーインサイト（事実ベース観察のみ） ---
+        try:
+            _df_for_insight = load_all()
+            _obs = daily_observations(_df_for_insight)
+            if _obs:
+                with st.container(border=True):
+                    st.markdown("**🪞 最近のあなた（観察）**")
+                    for _msg in _obs[:5]:
+                        st.markdown(f"- {_msg}")
+                    st.caption(
+                        "事実だけ表示しています。解釈は本人にお任せします。"
+                    )
+        except Exception:
+            pass
+
         # スマホでもサイドバーを開かずにHOMEへ戻れるよう、メインエリアに導線を置く
         _done_hub_url = "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/"
         if CURRENT_USER_ID:

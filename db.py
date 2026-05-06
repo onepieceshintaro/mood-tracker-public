@@ -83,6 +83,19 @@ def init_db() -> None:
             ))
         except Exception:
             pass
+        # 2026-05-06: 睡眠の質（3択）とイベント変数を追加（既存データ保持・破壊なし）
+        try:
+            conn.execute(text(
+                "ALTER TABLE mood_logs ADD COLUMN IF NOT EXISTS sleep_quality TEXT"
+            ))
+        except Exception:
+            pass
+        try:
+            conn.execute(text(
+                "ALTER TABLE mood_logs ADD COLUMN IF NOT EXISTS events TEXT"
+            ))
+        except Exception:
+            pass
 
         # user_nicknames（3アプリ共通・プレフィックス無し）
         conn.execute(text("""
