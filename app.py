@@ -856,11 +856,21 @@ else:
             "学習データに過剰適合している可能性があります。"
         )
 
-    # ----- 明日の気分予測（過学習時は数値を非表示） -----
+    # ----- 明日の気分予測：数値（過学習時は非表示）＋傾向（常に） -----
     nd = result.get("next_day")
+    _clf_nd = clf_result.get("next_day") if isinstance(clf_result, dict) else None
+    _cv_acc = clf_result.get("cv_accuracy") if isinstance(clf_result, dict) else None
+    _baseline_acc = clf_result.get("baseline_accuracy") if isinstance(clf_result, dict) else None
+    _clf_reliable = (
+        _clf_nd is not None
+        and _cv_acc is not None
+        and _baseline_acc is not None
+        and _cv_acc > _baseline_acc + 0.05
+    )
+
     if nd:
+        # ===== 数値予測 =====
         if _is_overfitted:
-            # 数値予測は出さない（信頼できない数字を見せない）
             st.warning(
                 "🤖 **数値予測は安定していないため、表示しません**"
             )
@@ -868,31 +878,6 @@ else:
                 f"{_overfit_reason}　"
                 "記録を続けて学習データが増えると、安定した数値予測が出せるようになります。"
             )
-
-            # ----- 代わりに分類予測を試みる（こちらは安定しやすい） -----
-            _clf_nd = clf_result.get("next_day") if isinstance(clf_result, dict) else None
-            _cv_acc = clf_result.get("cv_accuracy") if isinstance(clf_result, dict) else None
-            _baseline_acc = clf_result.get("baseline_accuracy") if isinstance(clf_result, dict) else None
-            if _clf_nd and _cv_acc is not None and _baseline_acc is not None:
-                # 多数派ベースラインを上回っている場合のみ表示
-                if _cv_acc > _baseline_acc + 0.05:
-                    _direction = _clf_nd["predicted_class"]
-                    _conf = _clf_nd["confidence"]
-                    _emoji = {"良くなる": "📈", "同じ": "➡️", "下がる": "📉"}.get(_direction, "")
-                    st.info(
-                        f"💡 **代わりに：傾向予測** {_emoji} 明日は今日より「**{_direction}**」と"
-                        f"見ています（信頼度：{_conf*100:.0f}%）"
-                    )
-                    st.caption(
-                        f"分類モデル（3クラス）の予測。CV正解率 {_cv_acc*100:.0f}% > "
-                        f"単純なベースライン {_baseline_acc*100:.0f}% を上回っているため表示。"
-                        "「明日は良くなる/同じ/下がる」だけならこちらの方が当たりやすい時期です。"
-                    )
-                else:
-                    st.caption(
-                        f"💡 傾向予測（良くなる/同じ/下がる）も試しましたが、"
-                        f"単純な多数派予測（{_baseline_acc*100:.0f}%）と同等で、まだ信頼できる差がありません。"
-                    )
         else:
             c_nd1, c_nd2 = st.columns([1, 2])
             with c_nd1:
@@ -918,6 +903,27 @@ else:
                         "⚠️ 交差検証 R² が低めです。**この予測は当てにならない時期**かもしれません。"
                         "記録を続けると精度が上がります。"
                     )
+
+        # ===== 傾向予測（常に表示・信頼できる時のみ・数値予測の補完）=====
+        if _clf_reliable:
+            _direction = _clf_nd["predicted_class"]
+            _conf = _clf_nd["confidence"]
+            _emoji = {"良くなる": "📈", "同じ": "➡️", "下がる": "📉"}.get(_direction, "")
+            st.info(
+                f"{_emoji} **傾向予測**：明日は今日より「**{_direction}**」と"
+                f"見ています（信頼度 {_conf*100:.0f}% / CV正解率 {_cv_acc*100:.0f}%）"
+            )
+            st.caption(
+                "数値予測が当たっていない時でも、**「良くなる/同じ/下がる」の方向**は当たりやすい。"
+                "数値予測と組み合わせて見ると安心感があります。"
+            )
+        elif isinstance(clf_result, dict) and "n_train" in clf_result:
+            # 学習はできたがベースラインを上回っていない場合
+            if _cv_acc is not None and _baseline_acc is not None:
+                st.caption(
+                    f"💡 傾向予測（良くなる/同じ/下がる）も計算していますが、"
+                    f"今は単純な多数派予測（{_baseline_acc*100:.0f}%）と同等で、信頼できる差がまだありません。"
+                )
 
         # ----- 予測値の根拠（寄与度の上位3つを文章化） -----
         if imp is not None and not imp.empty:
