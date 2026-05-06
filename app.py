@@ -685,31 +685,6 @@ except Exception:
 
 # ===== 📂 自分の傾向を見る（折りたたみ） =====
 with st.expander("📂 自分の傾向", expanded=False):
-    # 曜日別の気分
-    if len(view) >= 3:
-        st.markdown("**📅 曜日別の気分**")
-        dow_df = dow_stats(view)
-        fig_dow = go.Figure()
-        fig_dow.add_trace(go.Bar(
-            x=dow_df["曜日"].astype(str), y=dow_df["平均気分"],
-            error_y=dict(type="data", array=dow_df["標準偏差"]),
-            marker=dict(color=dow_df["平均気分"], colorscale="RdYlGn",
-                        cmin=1, cmax=10),
-            text=dow_df["記録数"].apply(lambda n: f"{n}件"),
-            textposition="outside",
-        ))
-        fig_dow.update_layout(
-            yaxis=dict(range=[0, 10.5], title="平均気分"),
-            height=320, margin=dict(l=10, r=10, t=10, b=10),
-            showlegend=False,
-        )
-        st.plotly_chart(
-            fig_dow, use_container_width=True,
-            config={"displayModeBar": False},
-        )
-    else:
-        st.caption("曜日別の分析は記録3件以上で表示されます。")
-
     # ----- 気分との相関プロット（generic、ユーザーが任意で特徴量を選べる） -----
     st.markdown("**🔗 気分と一緒に見る指標**")
     st.caption(
@@ -787,6 +762,31 @@ with st.expander("📂 自分の傾向", expanded=False):
             f"相関係数 r = {_meta['r']:+.2f}（n={_meta['n']}）。"
             "|r|≥0.3で弱い相関、≥0.5でそこそこ、≥0.7で強い相関の目安。"
         )
+
+    # ----- 曜日別の気分（相関の下に配置） -----
+    if len(view) >= 3:
+        st.markdown("**📅 曜日別の気分**")
+        dow_df = dow_stats(view)
+        fig_dow = go.Figure()
+        fig_dow.add_trace(go.Bar(
+            x=dow_df["曜日"].astype(str), y=dow_df["平均気分"],
+            error_y=dict(type="data", array=dow_df["標準偏差"]),
+            marker=dict(color=dow_df["平均気分"], colorscale="RdYlGn",
+                        cmin=1, cmax=10),
+            text=dow_df["記録数"].apply(lambda n: f"{n}件"),
+            textposition="outside",
+        ))
+        fig_dow.update_layout(
+            yaxis=dict(range=[0, 10.5], title="平均気分"),
+            height=320, margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
+        )
+        st.plotly_chart(
+            fig_dow, use_container_width=True,
+            config={"displayModeBar": False},
+        )
+    else:
+        st.caption("曜日別の分析は記録3件以上で表示されます。")
 
 st.divider()
 st.markdown("#### 📂 明日の気分のヒント")
