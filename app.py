@@ -7,6 +7,8 @@
 """
 from datetime import date, time, timedelta
 
+from time_utils import today_jst
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -353,7 +355,7 @@ except Exception:
     pass
 
 # --- 日付と天気（フォームの外で、変更即時反映） ---
-log_date = st.date_input("日付", value=date.today(), max_value=date.today())
+log_date = st.date_input("日付", value=today_jst(), max_value=today_jst())
 
 weather_cache_key = f"weather_{log_date}_{lat}_{lon}"
 col_w1, col_w2 = st.columns([4, 1])

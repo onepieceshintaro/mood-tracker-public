@@ -1,5 +1,7 @@
 """Open-Meteo APIから気象データを取得する。APIキー不要・無料。"""
 from datetime import date
+
+from time_utils import today_jst
 from collections import Counter
 from statistics import mean
 
@@ -118,7 +120,7 @@ def fetch_weather(log_date: date, lat: float = DEFAULT_LAT,
     - 過去 → archive-api
     - 今日以降 → forecast-api
     失敗時は None を返す。"""
-    today = date.today()
+    today = today_jst()
     is_past = log_date < today
     base_url = (
         "https://archive-api.open-meteo.com/v1/archive" if is_past

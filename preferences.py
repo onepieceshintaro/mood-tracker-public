@@ -11,6 +11,7 @@ from datetime import datetime
 from sqlalchemy import text
 
 from db import get_engine, is_postgres
+from time_utils import now_jst_naive
 
 
 def _ensure_table() -> None:
@@ -63,7 +64,7 @@ def set_notify_mood_dip(user_id: str, value: bool) -> None:
         # テーブル作成自体に失敗（権限不足等）したら、設定保存は諦める
         return
 
-    now = datetime.now().isoformat()
+    now = now_jst_naive().isoformat()
     sql = text("""
         INSERT INTO user_preferences (user_id, notify_mood_dip, updated_at)
         VALUES (:uid, :val, :now)
