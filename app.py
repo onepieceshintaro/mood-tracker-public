@@ -939,7 +939,19 @@ else:
         }
         if imp is not None and not imp.empty:
             _top3 = imp.head(3)
-            st.markdown("💡 **この予測値の根拠（モデルが効いていると見ている上位3つ）**")
+            # CV R² が低い間は「予測値の根拠」ではなく「あなたの傾向」として提示する。
+            # 数値予測としては未熟でも、特徴量の方向（符号）は比較的安定して読める。
+            _cv_r2_val = result.get("cv_r2") if isinstance(result, dict) else None
+            _is_reliable = (_cv_r2_val is not None) and (_cv_r2_val >= 0.2)
+            if _is_reliable:
+                st.markdown("💡 **この予測値の根拠（モデルが効いていると見ている上位3つ）**")
+            else:
+                st.markdown("🌱 **あなたの傾向（最近の記録から見える予兆 上位3つ）**")
+                st.caption(
+                    "数値の予測としてはまだ学習中ですが、"
+                    "**どの要因が気分と連動しやすいか** は今でも見えてきています。"
+                    "判定ではなく、自分の傾向を眺める材料として参考にどうぞ。"
+                )
             for _, _row in _top3.iterrows():
                 _coef = _row["効き方"]
                 _feat = _row["特徴量"]
