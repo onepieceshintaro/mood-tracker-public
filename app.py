@@ -863,10 +863,12 @@ else:
             )
         else:
             _date_str = nd['date'].strftime('%-m/%-d') if hasattr(nd['date'], 'strftime') else nd['date']
+            st.markdown(f"##### 📈 明日（{_date_str}）の気分の予測")
             st.metric(
-                f"明日（{_date_str}）の気分",
-                f"{nd['predicted_mood']:.1f}",
+                label="気分の予測",
+                value=f"{nd['predicted_mood']:.1f}",
                 help="1〜10。今日までの特徴量（睡眠・気圧・気分平均など）から線形回帰で計算",
+                label_visibility="collapsed",
             )
             st.caption(
                 "参考値です。当てるためのものではなく、**自分の調子を眺める素材**としてどうぞ。"
