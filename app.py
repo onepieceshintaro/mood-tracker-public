@@ -1083,7 +1083,7 @@ else:
         ))
         fig_cv.add_trace(go.Scatter(
             x=cv_df["日付"], y=cv_df["予測（CV・未学習相当）"],
-            mode="lines+markers", name="予測（未学習相当）",
+            mode="lines+markers", name="予測",
             line=dict(color="#e74c3c", dash="dash"),
         ))
         fig_cv.update_layout(
