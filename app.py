@@ -961,6 +961,77 @@ else:
                     f"- **{_state}** 日の翌日は、気分が {_direction}（効き具合 {_coef:+.2f}）"
                 )
 
+            # ── 試したい選択肢メニュー（寄与度1位に対応）──
+            # AI が提示するけど判定はしない。本人が「これかも」と選ぶ。
+            try:
+                from mood_actions import get_actions_for_feature
+                _top1 = _top3.iloc[0]
+                _top1_feat = _top1["特徴量"]
+                _action_set = get_actions_for_feature(_top1_feat)
+                if _action_set:
+                    with st.expander("💡 試したい選択肢を見てみる", expanded=False):
+                        st.caption(
+                            f"あなたの傾向では、**{_top1_feat}** が気分と最も連動しやすそうです。"
+                            "このパターンの日に「**試してみるのもあるかも**」な選択肢を並べました。"
+                            "「これかも」と感じたものがあれば参考に、ピンと来なければスルーで大丈夫です。"
+                        )
+                        st.markdown(f"#### 🌱 {_action_set['title']}")
+                        if _action_set.get("intro"):
+                            st.caption(_action_set["intro"])
+                        for _action in _action_set["actions"]:
+                            st.markdown(f"- {_action}")
+
+                        # ── 本人記入：自分なりの選択肢メモ ──
+                        if CURRENT_USER_ID:
+                            st.divider()
+                            st.markdown("#### ✍️ 自分なりの選択肢メモ")
+                            st.caption(
+                                "気分が下がり気味のときに、自分が試したい・効いたと感じる"
+                                "ことを書いておけます。書くも書かないも自由。"
+                                "後でこの画面を開いた時に、自分の言葉が見えます。"
+                            )
+                            try:
+                                from preferences import get_my_actions, set_my_actions
+                                _current_actions = get_my_actions(CURRENT_USER_ID)
+                                _key = "my_actions_input"
+                                if _key not in st.session_state:
+                                    st.session_state[_key] = _current_actions
+                                _new_value = st.text_area(
+                                    "自分の選択肢",
+                                    value=st.session_state[_key],
+                                    height=150,
+                                    label_visibility="collapsed",
+                                    placeholder=(
+                                        "例：\n"
+                                        "・22時半までに横になる\n"
+                                        "・妻に「今日エネルギー低めかも」と一言伝える\n"
+                                        "・朝の散歩を 15 分だけ入れる\n"
+                                    ),
+                                    key=_key,
+                                )
+                                _col_save, _col_status = st.columns([1, 3])
+                                with _col_save:
+                                    if st.button(
+                                        "💾 保存", key="my_actions_save",
+                                        use_container_width=True,
+                                    ):
+                                        try:
+                                            set_my_actions(CURRENT_USER_ID, _new_value)
+                                            st.toast("保存しました", icon="🌿")
+                                        except Exception as _e:
+                                            st.warning(f"保存に失敗: {_e}")
+                                with _col_status:
+                                    if _current_actions and _new_value == _current_actions:
+                                        st.caption("（保存済み）")
+                                    elif _new_value != _current_actions:
+                                        st.caption("（未保存の変更があります）")
+                            except Exception:
+                                # 自由記入が落ちても他は動く
+                                pass
+            except Exception:
+                # 選択肢メニューが落ちても本体の表示は止めない
+                pass
+
     # ----- モデルの精度（折りたたみ・技術的） -----
     with st.expander(
         "📂 モデルの精度", expanded=False,
