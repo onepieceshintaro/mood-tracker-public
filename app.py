@@ -953,8 +953,8 @@ else:
                 if _action_set:
                     with st.expander("🌿 気分が下がり気味のときに試したい選択肢", expanded=False):
                         st.caption(
-                            f"あなたの傾向では **{_top1_feat}** が気分と最も連動しやすそうです。"
-                            "「これかも」と感じたものがあれば参考に、ピンと来なければスルーで大丈夫です。"
+                            f"あなたの傾向では **{_top1_feat}** が連動しやすそう。"
+                            "ピンと来たものだけ参考に。"
                         )
                         if _action_set.get("intro"):
                             st.caption(_action_set["intro"])
