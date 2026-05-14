@@ -1069,7 +1069,7 @@ else:
     # ----- 予測 vs 実測（CV：未学習相当）：直感的なので外出し -----
     cv_df = result.get("cv_predictions")
     if cv_df is not None and len(cv_df) > 0:
-        st.markdown("**📈 過去の予測の当たり具合（予測 vs 実測）**")
+        st.markdown("##### 🎯 過去の予測の当たり具合（予測 vs 実測）")
         st.caption(
             "各日について、その日を学習から外した状態で予測した値（青：実測 ／ 赤・点線：予測）。"
             "重なっていれば「前日までの特徴量からよく説明できた日」、"
