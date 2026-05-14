@@ -24,7 +24,7 @@ from analysis import (
     streak_days, daily_observations, train_mood_classifier,
 )
 from _user import render_account_sidebar, get_or_create_user_id
-from db import get_engine, init_db
+from db import get_engine, init_db, save_prediction, get_prediction_for_date
 
 
 # -------------- タグ定義 --------------
@@ -803,8 +803,11 @@ with st.expander("📂 自分の傾向", expanded=False):
         st.caption("曜日別の分析は記録3件以上で表示されます。")
 
 st.divider()
-st.markdown("#### 📂 明日の気分予測")
-st.caption("今日までの記録から、翌日の気分を眺めるセクションです。")
+st.markdown("#### 📂 気分の傾向と振り返り")
+st.caption(
+    "今日までの記録から見える **傾向** と、過去の予測の **答え合わせ** を眺めるセクションです。"
+    "予測値は anchoring バイアスを避けるため、対応する実測が入った後にだけ表示します。"
+)
 # 最低21日必要（過学習を避けるため、14日→21日に引き上げ）
 result = train_mood_predictor(df, min_samples=21)
 # 分類モデル（同じ最低21日）：「良くなる/同じ/下がる」の3クラス予測
@@ -840,7 +843,12 @@ else:
             "学習データに過剰適合している可能性があります。"
         )
 
-    # ----- 明日の気分予測：数値（過学習時は非表示）＋傾向（常に） -----
+    # ----- 明日の気分予測：DB保存＋答え合わせ（バイアス回避設計） -----
+    # 設計意図：
+    #   予測値は入力前に見せると anchoring バイアスが入る（翌日の入力時に
+    #   「6.9 と言われたな」と記憶が引っ張る）。そのため数値は隠し、
+    #   対応する実測が入った後にだけ「答え合わせ」として見せる。
+    #   行動変容ルートは「傾向（上位3つ）」＋「選択肢メニュー」が担う。
     nd = result.get("next_day")
     _clf_nd = clf_result.get("next_day") if isinstance(clf_result, dict) else None
     _cv_acc = clf_result.get("cv_accuracy") if isinstance(clf_result, dict) else None
@@ -853,34 +861,58 @@ else:
     )
 
     if nd:
-        # ===== 数値予測 =====
+        # ===== 予測値を DB に保存（翌日以降の答え合わせ用・画面には出さない）=====
+        if CURRENT_USER_ID and not _is_overfitted:
+            try:
+                save_prediction(
+                    user_id=CURRENT_USER_ID,
+                    predicted_for_date=nd["date"],
+                    predicted_value=nd["predicted_mood"],
+                    based_on_date=nd.get("based_on_date"),
+                )
+            except Exception:
+                # 保存失敗してもセクション本体は動かす
+                pass
+
+        # ===== 答え合わせ枠：保存済み「今日の予測」 vs 今日の実測 =====
+        if CURRENT_USER_ID:
+            try:
+                _today = today_jst()
+                _today_row = load_existing(_today, CURRENT_USER_ID)
+                _today_mood_actual = _today_row[0] if _today_row else None
+                _prev_pred = get_prediction_for_date(CURRENT_USER_ID, _today)
+                if _prev_pred and _today_mood_actual is not None:
+                    _pred_val = _prev_pred["predicted_value"]
+                    _diff = abs(float(_today_mood_actual) - _pred_val)
+                    if _diff <= 0.5:
+                        _judge_emoji, _judge_label = "🎯", "ほぼぴたり"
+                    elif _diff <= 1.5:
+                        _judge_emoji, _judge_label = "✨", "近め"
+                    else:
+                        _judge_emoji, _judge_label = "🌀", "ちょっと外れ"
+                    st.markdown("##### 🎯 今日の予測の答え合わせ")
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric("予測値", f"{_pred_val:.1f}")
+                    _c2.metric("実測値", f"{int(_today_mood_actual)}")
+                    _c3.metric("評価", f"{_judge_emoji} {_judge_label}")
+                    st.caption(
+                        "前日までの特徴量から計算した予測と、今日の実測の答え合わせ。"
+                        "ぴたりでも外れでも、それは情報です。"
+                    )
+            except Exception:
+                # 答え合わせが失敗しても傾向は表示する
+                pass
+
+        # ===== 過学習時の注意（数値予測は元々非表示なので軽めに）=====
         if _is_overfitted:
-            st.info(
-                "🌱 **数値予測はまだ学習中**（もう少し記録が溜まると出せる見込み）"
-            )
             st.caption(
-                f"{_overfit_reason}　今は下の **あなたの傾向** を参考にしてみてもよさそうです。"
+                f"🌱 数値予測はまだ学習中（{_overfit_reason}）。"
+                "下の **あなたの傾向** を参考にしてみてもよさそうです。"
             )
-        else:
-            _date_str = nd['date'].strftime('%-m/%-d') if hasattr(nd['date'], 'strftime') else nd['date']
-            st.markdown(f"##### 📈 明日（{_date_str}）の気分の予測")
-            st.metric(
-                label="気分の予測",
-                value=f"{nd['predicted_mood']:.1f}",
-                help="1〜10。今日までの特徴量（睡眠・気圧・気分平均など）から線形回帰で計算",
-                label_visibility="collapsed",
-            )
+        elif _cv_r2 is not None and 0 <= _cv_r2 < 0.2:
             st.caption(
-                "参考値です。当てるためのものではなく、**自分の調子を眺める素材**としてどうぞ。"
+                "⚠️ 交差検証 R² が低めです。今は予測精度が低い時期かもしれません。"
             )
-            if nd.get("clamped"):
-                st.caption(
-                    f"⚠️ 計算上の生の値は {nd['raw_prediction']:.2f} でしたが、1〜10 に丸めています。"
-                )
-            if _cv_r2 is not None and 0 <= _cv_r2 < 0.2:
-                st.caption(
-                    "⚠️ 交差検証 R² が低めです。今は当てにならない時期かもしれません。"
-                )
 
         # ===== 傾向予測（常に表示・信頼できる時のみ・数値予測の補完）=====
         if _clf_reliable:

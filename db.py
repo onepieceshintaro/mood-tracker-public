@@ -114,3 +114,67 @@ def init_db() -> None:
                 updated_at TEXT
             )
         """))
+
+        # mood_predictions（翌日予測値の保存・答え合わせ用）
+        # 「予測値を入力前に見せると anchoring bias」問題を回避するため、
+        # 予測値は入力時には出さず、対応する実測が入った後にだけ答え合わせとして見せる。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS mood_predictions (
+                user_id TEXT NOT NULL,
+                predicted_for_date TEXT NOT NULL,
+                predicted_value {"DOUBLE PRECISION" if pg else "REAL"} NOT NULL,
+                based_on_date TEXT,
+                generated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, predicted_for_date)
+            )
+        """))
+
+
+# ------------------- mood_predictions helpers -------------------
+def save_prediction(
+    user_id: str,
+    predicted_for_date,
+    predicted_value: float,
+    based_on_date=None,
+) -> None:
+    """翌日予測を保存（同一日付は上書き）。"""
+    from time_utils import now_jst
+    sql = text("""
+        INSERT INTO mood_predictions
+        (user_id, predicted_for_date, predicted_value, based_on_date, generated_at)
+        VALUES
+        (:user_id, :predicted_for_date, :predicted_value, :based_on_date, :generated_at)
+        ON CONFLICT (user_id, predicted_for_date) DO UPDATE SET
+            predicted_value = EXCLUDED.predicted_value,
+            based_on_date = EXCLUDED.based_on_date,
+            generated_at = EXCLUDED.generated_at
+    """)
+    with get_engine().begin() as conn:
+        conn.execute(sql, {
+            "user_id": user_id,
+            "predicted_for_date": str(predicted_for_date),
+            "predicted_value": float(predicted_value),
+            "based_on_date": str(based_on_date) if based_on_date else None,
+            "generated_at": now_jst().isoformat(),
+        })
+
+
+def get_prediction_for_date(user_id: str, target_date) -> dict | None:
+    """指定日付に対して保存されている予測値を取得（無ければ None）。"""
+    sql = text("""
+        SELECT predicted_value, based_on_date, generated_at
+        FROM mood_predictions
+        WHERE user_id = :user_id AND predicted_for_date = :predicted_for_date
+    """)
+    with get_engine().connect() as conn:
+        row = conn.execute(sql, {
+            "user_id": user_id,
+            "predicted_for_date": str(target_date),
+        }).fetchone()
+    if not row:
+        return None
+    return {
+        "predicted_value": float(row[0]),
+        "based_on_date": row[1],
+        "generated_at": row[2],
+    }
