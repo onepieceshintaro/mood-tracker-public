@@ -969,7 +969,7 @@ else:
                 _top1_feat = _top1["特徴量"]
                 _action_set = get_actions_for_feature(_top1_feat)
                 if _action_set:
-                    with st.expander("💡 試したい選択肢を見てみる", expanded=False):
+                    with st.expander("💡 試したい選択肢", expanded=False):
                         st.caption(
                             f"あなたの傾向では、**{_top1_feat}** が気分と最も連動しやすそうです。"
                             "このパターンの日に「**試してみるのもあるかも**」な選択肢を並べました。"
