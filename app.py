@@ -930,9 +930,9 @@ else:
             _cv_r2_val = result.get("cv_r2") if isinstance(result, dict) else None
             _is_reliable = (_cv_r2_val is not None) and (_cv_r2_val >= 0.2)
             if _is_reliable:
-                st.markdown("💡 **この予測値の根拠（上位3つ）**")
+                st.markdown("##### 💡 この予測値の根拠（上位3つ）")
             else:
-                st.markdown("🌱 **あなたの傾向（上位3つ）**")
+                st.markdown("##### 🌱 あなたの傾向（上位3つ）")
                 st.caption(
                     "**どの要因が気分と連動しやすいか** が見えてきました。判定ではなく、眺める材料として。"
                 )
@@ -954,10 +954,7 @@ else:
                 _action_set = get_actions_for_feature(_top1_feat)
                 if _action_set:
                     with st.expander("🌿 気分が下がり気味のときに試したい選択肢", expanded=False):
-                        st.caption(
-                            f"あなたの傾向では **{_top1_feat}** が連動しやすそう。"
-                            "ピンと来たものだけ参考に。"
-                        )
+                        st.markdown(f"**🌱 {_action_set['title']}**")
                         if _action_set.get("intro"):
                             st.caption(_action_set["intro"])
                         for _action in _action_set["actions"]:
