@@ -313,11 +313,61 @@ def train_mood_predictor(df: pd.DataFrame, min_samples: int = 14):
         except Exception:
             next_day = None
 
+    # 今日の特徴量の状態（A: badge 用 / "判定" ではなく "観測" として返す）
+    # 学習データの分布に対して z-score で 高め/普段並み/低め を分類。
+    # AI 側で "上がる/下がる" の方向判断はしない（本人に組み合わせて読んでもらう）。
+    today_feature_state: dict[str, str] = {}
+    if len(feat_ready) > 0:
+        last_row_state = feat_ready.iloc[-1]
+        for f in features:
+            jp = FEATURE_JP.get(f, f)
+            try:
+                mean = float(X[f].mean())
+                std = float(X[f].std(ddof=0))
+                today_val = float(last_row_state[f])
+                if std == 0 or pd.isna(std):
+                    today_feature_state[jp] = "middle"
+                else:
+                    z = (today_val - mean) / std
+                    if z > 0.5:
+                        today_feature_state[jp] = "high"
+                    elif z < -0.5:
+                        today_feature_state[jp] = "low"
+                    else:
+                        today_feature_state[jp] = "middle"
+            except Exception:
+                today_feature_state[jp] = "unknown"
+
+    # 1週間前時点の寄与度ランキング（D: 先週からの変化）
+    # 同じ学習データから直近7日分を除外して再学習し、ランキングを比較する用。
+    importance_prev = None
+    try:
+        train_dates = pd.to_datetime(train["log_date"])
+        cutoff = train_dates.max() - pd.Timedelta(days=7)
+        prev_mask = train_dates <= cutoff
+        if int(prev_mask.sum()) >= min_samples:
+            X_prev = train.loc[prev_mask, features]
+            y_prev = train.loc[prev_mask, "mood_next"]
+            X_prev_std = (X_prev - X_prev.mean()) / X_prev.std(ddof=0).replace(0, 1)
+            model_prev = LinearRegression().fit(X_prev_std, y_prev)
+            importance_prev = pd.DataFrame({
+                "特徴量": [FEATURE_JP.get(f, f) for f in features],
+                "効き方": model_prev.coef_.round(3),
+            })
+            importance_prev["寄与度（絶対値）"] = importance_prev["効き方"].abs().round(3)
+            importance_prev = importance_prev.sort_values(
+                "寄与度（絶対値）", ascending=False
+            ).reset_index(drop=True)
+    except Exception:
+        importance_prev = None
+
     return {
         "n_train": len(train),
         "train_r2": round(model.score(X, y), 3),
         "cv_r2": round(cv_r2, 3) if cv_r2 is not None else None,
         "importance": importance,
+        "importance_prev": importance_prev,
+        "today_feature_state": today_feature_state,
         "in_sample_predictions": in_sample_predictions,
         "cv_predictions": cv_predictions,
         "next_day": next_day,

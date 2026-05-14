@@ -968,14 +968,76 @@ else:
                 st.caption(
                     "**どの要因が気分と連動しやすいか** が見えてきました。判定ではなく、眺める材料として。"
                 )
+            # A: 今日の状態 badge（"判定" ではなく "観測" として併記）
+            _today_states = result.get("today_feature_state") or {}
+            _STATE_BADGE = {
+                "high": "📊 今日：高め",
+                "low": "📊 今日：低め",
+                "middle": "📊 今日：普段並み",
+            }
             for _, _row in _top3.iterrows():
                 _coef = _row["効き方"]
                 _feat = _row["特徴量"]
                 _state = _STATE_PHRASE.get(_feat, f"{_feat}が高め")
                 _direction = "**上がりやすい**" if _coef > 0 else "**下がりやすい**"
+                _today_state = _today_states.get(_feat)
+                _badge = _STATE_BADGE.get(_today_state, "")
+                _badge_part = f"　／　{_badge}" if _badge else ""
                 st.markdown(
-                    f"- **{_state}** 日の翌日は、気分が {_direction}（効き具合 {_coef:+.2f}）"
+                    f"- **{_state}** 日の翌日は、気分が {_direction}"
+                    f"（効き具合 {_coef:+.2f}）{_badge_part}"
                 )
+            if _today_states:
+                st.caption(
+                    "💡 各行の **「今日：◯◯」** は、今日の値が普段の自分と比べてどうかを示しています。"
+                    "本文と組み合わせて「今日の自分」を読み取る材料に。"
+                )
+
+            # D: 先週からの変化（順位の動き）
+            _imp_prev = result.get("importance_prev")
+            if _imp_prev is not None and not _imp_prev.empty:
+                _cur_rank = {f: i for i, f in enumerate(imp["特徴量"].tolist())}
+                _prev_rank = {f: i for i, f in enumerate(_imp_prev["特徴量"].tolist())}
+                _changes: list[str] = []
+                _top3_feats = list(imp.head(3)["特徴量"])
+                for _f in _top3_feats:
+                    _cur = _cur_rank.get(_f)
+                    _prv = _prev_rank.get(_f)
+                    if _cur is None or _prv is None:
+                        continue
+                    if _prv >= 3 and _cur < 3:
+                        _changes.append(
+                            f"🆕 **{_f}** が新たに上位3入り（先週は {_prv+1}位）"
+                        )
+                    elif _cur < _prv - 1:
+                        _changes.append(
+                            f"🔼 **{_f}** が先週 {_prv+1}位 → 今週 {_cur+1}位"
+                        )
+                    elif _cur > _prv + 1:
+                        _changes.append(
+                            f"🔽 **{_f}** が先週 {_prv+1}位 → 今週 {_cur+1}位"
+                        )
+                # 上位3に出てこない要因でも、新しく頭角を現したものは拾う
+                for _, _row_p in _imp_prev.iterrows():
+                    _f = _row_p["特徴量"]
+                    if _f in _top3_feats:
+                        continue
+                    _cur = _cur_rank.get(_f)
+                    _prv = _prev_rank.get(_f)
+                    if _cur is None or _prv is None:
+                        continue
+                    if _prv < 3 and _cur >= 3:
+                        _changes.append(
+                            f"⬇️ **{_f}** が上位3から外れました（先週 {_prv+1}位 → 今週 {_cur+1}位）"
+                        )
+                if _changes:
+                    with st.expander("📅 先週からの変化", expanded=False):
+                        for _c in _changes:
+                            st.markdown(f"- {_c}")
+                        st.caption(
+                            "傾向は時期によって動きます。"
+                            "**最近の自分**を反映した順位として眺めてみてください。"
+                        )
 
             # ── 試したい選択肢メニュー（寄与度1位に対応）──
             # AI が提示するけど判定はしない。本人が「これかも」と選ぶ。
