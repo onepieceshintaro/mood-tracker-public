@@ -953,11 +953,9 @@ else:
                 if _action_set:
                     with st.expander("🌿 気分が下がり気味のときに試したい選択肢", expanded=False):
                         st.caption(
-                            f"あなたの傾向では、**{_top1_feat}** が気分と最も連動しやすそうです。"
-                            "このパターンの日に「**試してみるのもあるかも**」な選択肢を並べました。"
+                            f"あなたの傾向では **{_top1_feat}** が気分と最も連動しやすそうです。"
                             "「これかも」と感じたものがあれば参考に、ピンと来なければスルーで大丈夫です。"
                         )
-                        st.markdown(f"#### 🌱 {_action_set['title']}")
                         if _action_set.get("intro"):
                             st.caption(_action_set["intro"])
                         for _action in _action_set["actions"]:
