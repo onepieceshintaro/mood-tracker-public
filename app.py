@@ -803,13 +803,8 @@ with st.expander("📂 自分の傾向", expanded=False):
         st.caption("曜日別の分析は記録3件以上で表示されます。")
 
 st.divider()
-st.markdown("#### 📂 明日の気分のヒント")
-st.caption(
-    "「今日のXがどう翌日の気分に効いてそうか」を見るセクションです。"
-    "数字が気になる時だけスクロールしてください。"
-)
-
-st.markdown("##### 🤖 明日の気分予測")
+st.markdown("#### 📂 明日の気分予測")
+st.caption("今日までの記録から、翌日の気分を眺めるセクションです。")
 # 最低21日必要（過学習を避けるため、14日→21日に引き上げ）
 result = train_mood_predictor(df, min_samples=21)
 # 分類モデル（同じ最低21日）：「良くなる/同じ/下がる」の3クラス予測
@@ -861,40 +856,29 @@ else:
         # ===== 数値予測 =====
         if _is_overfitted:
             st.info(
-                "🌱 **数値予測はまだ学習中です**（もう少し記録が溜まると、出せるようになる見込みです）"
+                "🌱 **数値予測はまだ学習中**（もう少し記録が溜まると出せる見込み）"
             )
             st.caption(
-                f"{_overfit_reason}　"
-                "記録が増えてくると、数字の予測も安定してくることが多いです。"
-                "今は下の **傾向予測** を参考にしてみてもよさそうです。"
+                f"{_overfit_reason}　今は下の **あなたの傾向** を参考にしてみてもよさそうです。"
             )
         else:
-            c_nd1, c_nd2 = st.columns([1, 2])
-            with c_nd1:
-                st.metric(
-                    f"{nd['date'].strftime('%-m/%-d') if hasattr(nd['date'], 'strftime') else nd['date']} の予測",
-                    f"{nd['predicted_mood']:.1f}",
-                    help="1〜10。今日までの特徴量（睡眠・気圧・気分平均など）から線形回帰で計算",
-                )
-            with c_nd2:
-                base = nd["based_on_date"]
-                base_str = base.strftime("%-m/%-d") if hasattr(base, "strftime") else str(base)
+            _date_str = nd['date'].strftime('%-m/%-d') if hasattr(nd['date'], 'strftime') else nd['date']
+            st.metric(
+                f"明日（{_date_str}）の気分",
+                f"{nd['predicted_mood']:.1f}",
+                help="1〜10。今日までの特徴量（睡眠・気圧・気分平均など）から線形回帰で計算",
+            )
+            st.caption(
+                "参考値です。当てるためのものではなく、**自分の調子を眺める素材**としてどうぞ。"
+            )
+            if nd.get("clamped"):
                 st.caption(
-                    f"📌 **{base_str}** までの記録をもとに、線形回帰モデルで出した予測値です。"
-                    "あくまで参考値で、当てるためのものではなく**自分の調子を予測する素材**として"
-                    "使ってもらえたら嬉しいです。"
+                    f"⚠️ 計算上の生の値は {nd['raw_prediction']:.2f} でしたが、1〜10 に丸めています。"
                 )
-                if nd.get("clamped"):
-                    st.caption(
-                        f"⚠️ 計算上の生の値は {nd['raw_prediction']:.2f} でしたが、"
-                        "1〜10 の範囲に丸めて表示しています。"
-                    )
-                if _cv_r2 is not None and 0 <= _cv_r2 < 0.2:
-                    st.caption(
-                        "⚠️ 交差検証 R² が低めです。"
-                        "**今の予測は当てにならない時期**かもしれません。"
-                        "記録を続けるうちに精度が上がってくることが多いです。"
-                    )
+            if _cv_r2 is not None and 0 <= _cv_r2 < 0.2:
+                st.caption(
+                    "⚠️ 交差検証 R² が低めです。今は当てにならない時期かもしれません。"
+                )
 
         # ===== 傾向予測（常に表示・信頼できる時のみ・数値予測の補完）=====
         if _clf_reliable:
@@ -944,13 +928,11 @@ else:
             _cv_r2_val = result.get("cv_r2") if isinstance(result, dict) else None
             _is_reliable = (_cv_r2_val is not None) and (_cv_r2_val >= 0.2)
             if _is_reliable:
-                st.markdown("💡 **この予測値の根拠（モデルが効いていると見ている上位3つ）**")
+                st.markdown("💡 **この予測値の根拠（上位3つ）**")
             else:
-                st.markdown("🌱 **あなたの傾向（最近の記録から見える予兆 上位3つ）**")
+                st.markdown("🌱 **あなたの傾向（上位3つ）**")
                 st.caption(
-                    "数値の予測としてはまだ学習中ですが、"
-                    "**どの要因が気分と連動しやすいか** は今でも見えてきています。"
-                    "判定ではなく、自分の傾向を眺める材料として参考にどうぞ。"
+                    "**どの要因が気分と連動しやすいか** が見えてきました。判定ではなく、眺める材料として。"
                 )
             for _, _row in _top3.iterrows():
                 _coef = _row["効き方"]
