@@ -418,7 +418,7 @@ else:
 # イベント変数9項目（カテゴリ別）
 EVENT_OPTIONS_BY_CATEGORY = {
     "身体": [
-        "食事抜きあり", "夜間目覚めた", "運動した", "よく休めた",
+        "食事抜きあり", "運動した", "よく休めた",
     ],
     "家族・人間関係": [
         "子供の夜泣き・体調不良", "人間関係でモヤッと",
@@ -429,6 +429,18 @@ EVENT_OPTIONS_BY_CATEGORY = {
     "その他": [
         "飲酒あり",
     ],
+}
+
+# 睡眠の状態：events と同じく "events" カラム（JSON）に格納する。
+# 旧ラベル「夜間目覚めた」は新ラベル「夜中に起きた」と同義として扱う（後方互換）。
+SLEEP_STATE_OPTIONS = [
+    "夜中に起きた",
+    "寝つきが悪かった",
+    "昼寝した",
+    "二度寝した",
+]
+SLEEP_STATE_LEGACY_MAP = {
+    "夜間目覚めた": "夜中に起きた",
 }
 
 with st.form("mood_form"):
@@ -443,18 +455,39 @@ with st.form("mood_form"):
             "エネルギー（1=枯渇 〜 10=元気いっぱい）", 1, 10, init_energy or 5
         )
 
-    # --- 睡眠：3択を主、時間入力は任意 ---
+    # --- 睡眠ブロック（睡眠まわりを 1 箇所に集約）---
     SLEEP_QUALITY_OPTIONS = ["良い", "普通", "悪い"]
     _sq_index = (
         SLEEP_QUALITY_OPTIONS.index(init_sleep_quality)
         if init_sleep_quality in SLEEP_QUALITY_OPTIONS else 1
     )
+    st.markdown("**😴 睡眠**")
     sleep_quality = st.radio(
-        "睡眠どうだった？",
+        "主寝（一番長く寝た時間帯）はどうだった？",
         SLEEP_QUALITY_OPTIONS,
         index=_sq_index,
         horizontal=True,
     )
+
+    # 睡眠の状態チェックボックス（任意・夜だけじゃない側面を拾う）
+    # 過去ログの旧ラベルは新ラベルに正規化して初期値に反映
+    _init_sleep_states: set[str] = set()
+    for _s in (init_events_list or []):
+        if _s in SLEEP_STATE_LEGACY_MAP:
+            _init_sleep_states.add(SLEEP_STATE_LEGACY_MAP[_s])
+        elif _s in SLEEP_STATE_OPTIONS:
+            _init_sleep_states.add(_s)
+    sleep_states_selected: list[str] = []
+    _sl_cols = st.columns(2)
+    for _i, _opt in enumerate(SLEEP_STATE_OPTIONS):
+        with _sl_cols[_i % 2]:
+            if st.checkbox(
+                _opt,
+                value=(_opt in _init_sleep_states),
+                key=f"sl_{_opt}",
+                help="該当する日だけチェック。当てはまらなければ全部空欄で OK",
+            ):
+                sleep_states_selected.append(_opt)
 
     # --- イベント変数（任意・デフォルト開）---
     events_selected: list[str] = []
@@ -523,12 +556,20 @@ with st.form("mood_form"):
     submitted = st.form_submit_button("記録する", use_container_width=True)
     if submitted:
         tags_to_save = ",".join(tags_selected)
+        # 睡眠ブロックのチェックは events と同じカラムに保存（JSON 配列）
+        # 後方互換：旧ラベル「夜間目覚めた」が既存 events に残っていれば除外し、
+        # 新ラベル「夜中に起きた」へ置き換えてから sleep_states_selected と統合
+        _events_cleaned = [
+            e for e in events_selected
+            if e not in SLEEP_STATE_OPTIONS and e not in SLEEP_STATE_LEGACY_MAP
+        ]
+        _merged_events = _events_cleaned + sleep_states_selected
         upsert(
             log_date, mood, sleep_hours, energy, note, tags_to_save,
             weather, wake_time,
             recovery=recovery,
             sleep_quality=sleep_quality,
-            events=events_selected,
+            events=_merged_events,
         )
         st.success(f"{log_date} の記録を保存しました")
         st.session_state["_just_saved_date"] = str(log_date)
@@ -723,24 +764,28 @@ except Exception:
 # ===== 📂 生活リズム（折りたたみ・Phase 3 回復期の素材）=====
 # 起床時刻・睡眠時間の推移を可視化。リズムが整ってきているかを「見たい時だけ」見る。
 # 押し付けず、本人が眺める材料として置く（mood-actions と同じスタンス）。
-with st.expander("📂 生活リズム", expanded=False):
+# 表示条件（β）：直近期間内に sleep_hours または wake_time の記録が
+# **1 件以上ある人だけ** expander を表示する。記録が無い人には邪魔にならないように。
+def _wake_to_hours(s):
+    try:
+        h, m = map(int, str(s).split(":"))
+        return h + m / 60
+    except Exception:
+        return None
+
+
+_life_view = view[["log_date", "wake_time", "sleep_hours"]].copy()
+_life_view["wake_hours"] = _life_view["wake_time"].apply(_wake_to_hours)
+_life_wake = _life_view.dropna(subset=["wake_hours"])
+_life_sleep = _life_view.dropna(subset=["sleep_hours"])
+_show_life_rhythm = (len(_life_wake) >= 1) or (len(_life_sleep) >= 1)
+
+if _show_life_rhythm:
+  with st.expander("📂 生活リズム", expanded=False):
     st.caption(
         "起床時刻と睡眠時間の推移。リズムが整ってきているかを **見たい時だけ** 眺める用。"
         "判定はなし、本人が読み取る材料として。"
     )
-
-    def _wake_to_hours(s):
-        try:
-            h, m = map(int, str(s).split(":"))
-            return h + m / 60
-        except Exception:
-            return None
-
-    _life_view = view[["log_date", "wake_time", "sleep_hours"]].copy()
-    _life_view["wake_hours"] = _life_view["wake_time"].apply(_wake_to_hours)
-
-    _life_wake = _life_view.dropna(subset=["wake_hours"])
-    _life_sleep = _life_view.dropna(subset=["sleep_hours"])
 
     if len(_life_wake) < 3 and len(_life_sleep) < 3:
         st.caption("起床時刻または睡眠時間が **3 件以上**溜まるとグラフが出ます。")
