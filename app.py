@@ -1402,20 +1402,6 @@ else:
 
 st.divider()
 
-# ----- ✨ 最近の「良かったこと」（末尾に配置：振り返りの素材として）-----
-if "recovery" in df.columns:
-    _cutoff_rec = pd.Timestamp.now().normalize() - pd.Timedelta(days=30)
-    _rec_df = df[
-        (df["log_date"] >= _cutoff_rec)
-        & (df["recovery"].fillna("").astype(str).str.len() > 0)
-    ][["log_date", "recovery"]]
-    if not _rec_df.empty:
-        st.subheader("✨ 最近の「良かったこと」")
-        st.caption("自分が書いた、自分に効いたこと。忘れた頃に読み返して。")
-        for _, row in _rec_df.sort_values("log_date", ascending=False).head(10).iterrows():
-            dt = row["log_date"].strftime("%m-%d")
-            st.markdown(f"- **{dt}** — {row['recovery']}")
-
 # ----- 最近のメモ -----
 notes_df = view[view["note"].fillna("").str.len() > 0][
     ["log_date", "mood", "note"]
