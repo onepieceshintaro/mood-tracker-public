@@ -22,6 +22,7 @@ from weather import (
 from analysis import (
     dow_stats, correlations_with_next_mood, train_mood_predictor, DOW_ORDER,
     streak_days, daily_observations, train_mood_classifier,
+    train_mood_same_day,
 )
 from _user import render_account_sidebar, get_or_create_user_id
 from db import get_engine, init_db, save_prediction, get_prediction_for_date
@@ -992,6 +993,8 @@ st.caption(
 result = train_mood_predictor(df, min_samples=21)
 # 分類モデル（同じ最低21日）：「良くなる/同じ/下がる」の3クラス予測
 clf_result = train_mood_classifier(df, min_samples=21)
+# 同日予測モデル：当日の特徴量から当日の気分を予測（リーク回避済）
+same_day_result = train_mood_same_day(df, min_samples=21)
 
 if "importance" not in result:
     st.info(
@@ -1054,33 +1057,75 @@ else:
                 # 保存失敗してもセクション本体は動かす
                 pass
 
-        # ===== 答え合わせ枠：保存済み「今日の予測」 vs 今日の実測 =====
+        # ===== 答え合わせ枠：保存済み「翌日予測」 vs 今日の実測 =====
+        # （anchoring 回避のため、実測が入った後にだけ表示）
+        def _judge(diff: float) -> tuple[str, str]:
+            if diff <= 0.5:
+                return "🎯", "ほぼぴたり"
+            if diff <= 1.5:
+                return "✨", "近め"
+            return "🌀", "ちょっと外れ"
+
+        _today_mood_actual = None
         if CURRENT_USER_ID:
             try:
                 _today = today_jst()
                 _today_row = load_existing(_today, CURRENT_USER_ID)
                 _today_mood_actual = _today_row[0] if _today_row else None
+            except Exception:
+                _today_mood_actual = None
+
+        # --- 1) 翌日予測（昨日まで計算 → 今日）の答え合わせ ---
+        _shown_any_reveal = False
+        if CURRENT_USER_ID and _today_mood_actual is not None:
+            try:
+                _today = today_jst()
                 _prev_pred = get_prediction_for_date(CURRENT_USER_ID, _today)
-                if _prev_pred and _today_mood_actual is not None:
+                if _prev_pred is not None:
                     _pred_val = _prev_pred["predicted_value"]
-                    _diff = abs(float(_today_mood_actual) - _pred_val)
-                    if _diff <= 0.5:
-                        _judge_emoji, _judge_label = "🎯", "ほぼぴたり"
-                    elif _diff <= 1.5:
-                        _judge_emoji, _judge_label = "✨", "近め"
-                    else:
-                        _judge_emoji, _judge_label = "🌀", "ちょっと外れ"
-                    st.markdown("##### 🎯 今日の予測の答え合わせ")
+                    _je, _jl = _judge(
+                        abs(float(_today_mood_actual) - _pred_val)
+                    )
+                    st.markdown("##### 🔮 翌日予測（昨日からの予測）の答え合わせ")
                     _c1, _c2, _c3 = st.columns(3)
                     _c1.metric("予測値", f"{_pred_val:.1f}")
                     _c2.metric("実測値", f"{int(_today_mood_actual)}")
-                    _c3.metric("評価", f"{_judge_emoji} {_judge_label}")
+                    _c3.metric("評価", f"{_je} {_jl}")
                     st.caption(
-                        "前日までの特徴量から計算した予測と、今日の実測の答え合わせ。"
-                        "ぴたりでも外れでも、それは情報です。"
+                        "**前日までの特徴量から計算した予測** と、今日の実測の答え合わせ。"
+                        "明日に向けたアクションの参考に。"
                     )
+                    _shown_any_reveal = True
             except Exception:
-                # 答え合わせが失敗しても傾向は表示する
+                pass
+
+        # --- 2) 同日予測（今日の特徴量 → 今日）の答え合わせ ---
+        # リークなし（mood と mood_ma3 を使わない）の同日モデル。
+        # 入力時には見せず、実測が入った後だけ表示するので anchoring は起きない。
+        if _today_mood_actual is not None and isinstance(same_day_result, dict):
+            try:
+                _sd_today = same_day_result.get("today_pred")
+                if _sd_today is not None:
+                    _sd_pred_val = _sd_today.get("predicted_mood")
+                    _sd_actual = _sd_today.get("actual_mood")
+                    if _sd_pred_val is not None and _sd_actual is not None:
+                        _je2, _jl2 = _judge(
+                            abs(float(_sd_actual) - float(_sd_pred_val))
+                        )
+                        st.markdown("##### 🎯 同日予測（今日の特徴量からの予測）の答え合わせ")
+                        _d1, _d2, _d3 = st.columns(3)
+                        _d1.metric("予測値", f"{_sd_pred_val:.1f}")
+                        _d2.metric("実測値", f"{int(_sd_actual)}")
+                        _d3.metric("評価", f"{_je2} {_jl2}")
+                        _sd_cv_r2 = same_day_result.get("cv_r2")
+                        _sd_n = same_day_result.get("n_train")
+                        st.caption(
+                            "**今日の睡眠・気圧・起床などの特徴量から計算した予測** と、"
+                            "今日の実測の答え合わせ。"
+                            f"（モデル CV R² {_sd_cv_r2:+.2f} / n={_sd_n}）"
+                        )
+                        _shown_any_reveal = True
+            except Exception:
                 pass
 
         # ===== 過学習時の注意（数値予測は元々非表示なので軽めに）=====

@@ -126,6 +126,17 @@ CORE_FEATURES = [
     "mood_ma3",     # 直近3日の気分平均（前日気分の代替）
 ]
 
+# 同日予測用：今日の気分を予測するため、今日の mood および
+# mood を含む派生（mood_ma3）は使えない（リーク）。
+# 代わりに lag-1 移動平均（昨日まで）を使う。
+CORE_FEATURES_SAME_DAY = [
+    "sleep_hours",     # 睡眠時間
+    "energy",          # エネルギー
+    "pressure",        # 気圧
+    "wake_minutes",    # 起床時刻
+    "mood_ma3_prev",   # 直近3日（昨日まで）の気分平均（リークなし）
+]
+
 FEATURE_JP = {
     "mood": "当日の気分",
     "sleep_hours": "睡眠時間",
@@ -196,9 +207,14 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
         wake_ma7 = d["wake_minutes"].rolling(7, min_periods=3).mean()
         d["wake_ma7_gap"] = d["wake_minutes"] - wake_ma7
 
-    # 移動平均
+    # 移動平均（当日含む：翌日予測モデル用）
     d["mood_ma3"] = d["mood"].rolling(3, min_periods=1).mean()
     d["mood_ma7"] = d["mood"].rolling(7, min_periods=1).mean()
+
+    # 移動平均（当日含まず：同日予測モデル用・リーク回避）
+    # shift(1) で当日の mood を除外してから rolling 平均を取る
+    d["mood_ma3_prev"] = d["mood"].shift(1).rolling(3, min_periods=1).mean()
+    d["mood_ma7_prev"] = d["mood"].shift(1).rolling(7, min_periods=1).mean()
 
     # 曜日
     d["dow"] = d.index.dayofweek
@@ -371,6 +387,74 @@ def train_mood_predictor(df: pd.DataFrame, min_samples: int = 14):
         "in_sample_predictions": in_sample_predictions,
         "cv_predictions": cv_predictions,
         "next_day": next_day,
+        "features_used": [FEATURE_JP.get(f, f) for f in features],
+    }
+
+
+def train_mood_same_day(df: pd.DataFrame, min_samples: int = 21):
+    """同日予測モデル：当日の特徴量（mood を除く）から当日の気分を予測。
+
+    リーク回避のため、特徴量に当日 mood / mood_ma3（当日含む）は使わない。
+    代わりに mood_ma3_prev（lag-1 移動平均）を使う。
+
+    戻り値 dict:
+      - n_train: 学習サンプル数
+      - cv_r2: 5分割CVのR²平均
+      - train_r2: 学習データへのR²（過学習評価）
+      - today_pred: dict {"date", "predicted_mood", "actual_mood"} or None
+    """
+    from sklearn.linear_model import LinearRegression
+    from sklearn.model_selection import cross_val_score
+
+    feat = build_feature_frame(df)
+    features = [f for f in CORE_FEATURES_SAME_DAY if f in feat.columns]
+    # 同日予測：target = mood（当日）
+    train = feat.dropna(subset=["mood"] + features)
+
+    if len(train) < min_samples:
+        return {"n_train": len(train), "required": min_samples}
+
+    X = train[features]
+    y = train["mood"]
+
+    model = LinearRegression().fit(X, y)
+    train_r2 = model.score(X, y)
+
+    cv_n = min(5, max(2, len(train) // 3))
+    try:
+        cv_r2 = cross_val_score(
+            model, X, y, cv=cv_n, scoring="r2"
+        ).mean()
+    except Exception:
+        cv_r2 = None
+
+    # 今日の予測（最新行に対して）
+    today_pred = None
+    feat_ready = feat.dropna(subset=features)
+    if len(feat_ready) > 0:
+        last_row = feat_ready.iloc[-1]
+        try:
+            raw_pred = float(model.predict([last_row[features].values])[0])
+            clamped = max(1.0, min(10.0, raw_pred))
+            _actual = (
+                float(last_row["mood"])
+                if pd.notna(last_row.get("mood")) else None
+            )
+            today_pred = {
+                "date": pd.to_datetime(last_row["log_date"]).date(),
+                "predicted_mood": round(clamped, 1),
+                "raw_prediction": round(raw_pred, 2),
+                "clamped": raw_pred != clamped,
+                "actual_mood": _actual,
+            }
+        except Exception:
+            today_pred = None
+
+    return {
+        "n_train": len(train),
+        "train_r2": round(train_r2, 3),
+        "cv_r2": round(cv_r2, 3) if cv_r2 is not None else None,
+        "today_pred": today_pred,
         "features_used": [FEATURE_JP.get(f, f) for f in features],
     }
 
