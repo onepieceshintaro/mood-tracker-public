@@ -508,8 +508,11 @@ with st.form("mood_form"):
         )
         recovery = st.text_input(
             "今日ちょっと良かったこと", value=init_recovery or "",
-            placeholder="例: 散歩した、よく眠れた、友人と話した",
-            help="書けない日はスキップで大丈夫です",
+            placeholder="例: 散歩した、よく眠れた、友人と話した、歯を磨いた、起きてご飯を食べた",
+            help=(
+                "微差なことでも気軽に。「歯を磨けた」「水を飲んだ」レベルでも OK。"
+                "書けない日はスキップで大丈夫です。"
+            ),
         )
         note = st.text_area(
             "一言メモ", value=init_note or "",
@@ -590,6 +593,26 @@ else:
     st.caption(
         f"🌱 記録 **{len(df)}日目**。続けるほど、ここに「最近のあなた」の事実が増えていきます。"
     )
+
+# ===== 📚 過去のちょっと良かったこと（振り返り素材）=====
+# Phase 3「小さなできた感」を累積で見える化。
+# 受動表示（expander 折りたたみ）で「見たい時だけ」アクセスできるように。
+_recovery_df = df[df["recovery"].notna() & (df["recovery"].astype(str).str.strip() != "")]
+if len(_recovery_df) > 0:
+    _recovery_recent = _recovery_df.sort_values("log_date", ascending=False).head(30)
+    with st.expander(
+        f"📚 過去のちょっと良かったこと（最新 {len(_recovery_recent)} 件）", expanded=False
+    ):
+        st.caption(
+            "**自分が書いた言葉**だけが並びます。判定や評価はなし。"
+            "「こんな日もあったな」と眺める材料として。"
+        )
+        for _, _row in _recovery_recent.iterrows():
+            _date_str = _row["log_date"].strftime("%m/%d (%a)") if hasattr(
+                _row["log_date"], "strftime"
+            ) else str(_row["log_date"])
+            st.markdown(f"- **{_date_str}**　{_row['recovery']}")
+    st.divider()
 
 period = st.radio(
     "表示期間",
