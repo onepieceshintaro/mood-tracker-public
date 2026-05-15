@@ -720,6 +720,118 @@ except Exception:
     pass
 
 
+# ===== 📂 生活リズム（折りたたみ・Phase 3 回復期の素材）=====
+# 起床時刻・睡眠時間の推移を可視化。リズムが整ってきているかを「見たい時だけ」見る。
+# 押し付けず、本人が眺める材料として置く（mood-actions と同じスタンス）。
+with st.expander("📂 生活リズム", expanded=False):
+    st.caption(
+        "起床時刻と睡眠時間の推移。リズムが整ってきているかを **見たい時だけ** 眺める用。"
+        "判定はなし、本人が読み取る材料として。"
+    )
+
+    def _wake_to_hours(s):
+        try:
+            h, m = map(int, str(s).split(":"))
+            return h + m / 60
+        except Exception:
+            return None
+
+    _life_view = view[["log_date", "wake_time", "sleep_hours"]].copy()
+    _life_view["wake_hours"] = _life_view["wake_time"].apply(_wake_to_hours)
+
+    _life_wake = _life_view.dropna(subset=["wake_hours"])
+    _life_sleep = _life_view.dropna(subset=["sleep_hours"])
+
+    if len(_life_wake) < 3 and len(_life_sleep) < 3:
+        st.caption("起床時刻または睡眠時間が **3 件以上**溜まるとグラフが出ます。")
+    else:
+        # ----- 起床時刻の推移 -----
+        if len(_life_wake) >= 3:
+            st.markdown("**⏰ 起床時刻の推移**")
+            fig_wake = go.Figure()
+            fig_wake.add_trace(go.Scatter(
+                x=_life_wake["log_date"], y=_life_wake["wake_hours"],
+                mode="lines+markers", name="起床時刻",
+                line=dict(color="#9b59b6"), marker=dict(size=8),
+            ))
+            if len(_life_wake) >= 7:
+                _wake_ma7 = _life_wake["wake_hours"].rolling(
+                    7, min_periods=3
+                ).mean()
+                fig_wake.add_trace(go.Scatter(
+                    x=_life_wake["log_date"], y=_wake_ma7,
+                    mode="lines", name="7日移動平均",
+                    line=dict(color="#f39c12", dash="dash", width=2),
+                ))
+            fig_wake.update_layout(
+                yaxis=dict(title="起床時刻（時）", dtick=1),
+                xaxis=dict(title="日付"),
+                height=280, margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1),
+            )
+            st.plotly_chart(
+                fig_wake, use_container_width=True,
+                config={"displayModeBar": False},
+            )
+            _wake_std = _life_wake["wake_hours"].std()
+            if _wake_std is not None and not pd.isna(_wake_std):
+                _wake_min = _life_wake["wake_hours"].min()
+                _wake_max = _life_wake["wake_hours"].max()
+                _wake_mean = _life_wake["wake_hours"].mean()
+
+                def _fmt_hour(h):
+                    hh = int(h)
+                    mm = int(round((h - hh) * 60))
+                    if mm == 60:
+                        hh += 1
+                        mm = 0
+                    return f"{hh:02d}:{mm:02d}"
+
+                st.caption(
+                    f"平均 **{_fmt_hour(_wake_mean)}** ／ "
+                    f"早い日 **{_fmt_hour(_wake_min)}** ／ "
+                    f"遅い日 **{_fmt_hour(_wake_max)}**（n = {len(_life_wake)}）。"
+                    f"ばらつき（標準偏差）{_wake_std:.1f} 時間 — "
+                    "値が小さいほどリズムが整っている目安です。"
+                )
+
+        # ----- 睡眠時間の推移 -----
+        if len(_life_sleep) >= 3:
+            st.markdown("**😴 睡眠時間の推移**")
+            fig_sleep = go.Figure()
+            fig_sleep.add_trace(go.Bar(
+                x=_life_sleep["log_date"], y=_life_sleep["sleep_hours"],
+                name="睡眠時間", marker=dict(color="#3498db"),
+            ))
+            if len(_life_sleep) >= 7:
+                _sleep_ma7 = _life_sleep["sleep_hours"].rolling(
+                    7, min_periods=3
+                ).mean()
+                fig_sleep.add_trace(go.Scatter(
+                    x=_life_sleep["log_date"], y=_sleep_ma7,
+                    mode="lines", name="7日移動平均",
+                    line=dict(color="#f39c12", dash="dash", width=2),
+                ))
+            fig_sleep.update_layout(
+                yaxis=dict(title="睡眠時間（h）"),
+                xaxis=dict(title="日付"),
+                height=280, margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1),
+            )
+            st.plotly_chart(
+                fig_sleep, use_container_width=True,
+                config={"displayModeBar": False},
+            )
+            _sleep_mean = _life_sleep["sleep_hours"].mean()
+            _short_days = int((_life_sleep["sleep_hours"] < 6).sum())
+            st.caption(
+                f"平均 **{_sleep_mean:.1f} 時間** ／ "
+                f"6 時間未満の日 **{_short_days} 日**（n = {len(_life_sleep)}）。"
+            )
+
+
 # ===== 📂 自分の傾向を見る（折りたたみ） =====
 with st.expander("📂 自分の傾向", expanded=False):
     # ----- 気分との相関プロット（generic、ユーザーが任意で特徴量を選べる） -----
