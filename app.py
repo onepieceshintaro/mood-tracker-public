@@ -575,6 +575,35 @@ with st.form("mood_form"):
         st.success(f"{log_date} の記録を保存しました")
         st.session_state["_just_saved_date"] = str(log_date)
 
+        # --- 危機検出（recovery / note の自由記述をチェック）---
+        # 保存自体は完了させた上で、検出時は窓口を提示する。
+        # LLM 呼び出しは費用最小化のため、キーワード判定のみ（client=None）。
+        # 重要：mood-tracker は対話ではないので「対話停止」ではなく
+        # 警告表示で本人に窓口を案内する設計。
+        try:
+            from crisis_detection import detect_mode
+            from crisis_ui import render_warning_ui, render_critical_ui
+            _combined_text = " ".join([
+                str(recovery or ""),
+                str(note or ""),
+            ]).strip()
+            if _combined_text:
+                _md_result = detect_mode(
+                    _combined_text, client=None, use_llm=False,
+                )
+                _md = _md_result["mode"]
+                if _md == "critical":
+                    render_critical_ui()
+                    st.stop()
+                elif _md == "warning":
+                    render_warning_ui(
+                        on_resume_key="mood_warning_resume",
+                    )
+                    st.stop()
+        except Exception:
+            # 検出失敗してもアプリの動作は止めない（フェイルセーフ）
+            pass
+
         # --- デイリーインサイト（事実ベース観察のみ） ---
         try:
             _df_for_insight = load_all()
